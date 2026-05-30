@@ -117,9 +117,13 @@ async function genGifts(){
     const raw=await callAI('3 specific gift ideas for '+c.fname+' for '+S.addOccasion+'. Background: '+(c.note||"friend")+'. Under 10 words each. Return ONLY a JSON array like ["idea1","idea2","idea3"] no markdown.');
     const ideas=raw?JSON.parse(raw.replace(/```json|```/g,"").trim()):[];
     const list=ideas.length?ideas:fallback;
-    for(let i=0;i<list.length;i++)await addGift(c.id,{id:uid()+i,text:list[i],occasion:S.addOccasion,bought:false,date:tod()});
-  }catch{
-    for(let i=0;i<fallback.length;i++)await addGift(c.id,{id:uid()+i,text:fallback[i],occasion:S.addOccasion,bought:false,date:tod()});
+    const existing=S.contacts.find(x=>x.id===c.id)?.gifts||[];
+    const newGifts=list.map(function(text,i){return{id:uid()+i,text:text,occasion:S.addOccasion,bought:false,date:tod()};});
+    await fbUp(c.id,{gifts:[...existing,...newGifts]});
+  }catch(e){
+    const existing=S.contacts.find(x=>x.id===c.id)?.gifts||[];
+    const newGifts=fallback.map(function(text,i){return{id:uid()+i,text:text,occasion:S.addOccasion,bought:false,date:tod()};});
+    await fbUp(c.id,{gifts:[...existing,...newGifts]});
   }
   S.giftGenerating=false;S.giftAdding=false;render();
 }
