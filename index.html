@@ -7,7 +7,6 @@
 <meta name="apple-mobile-web-app-title" content="Inner Circle"/>
 <meta name="theme-color" content="#1E1E2E"/>
 <title>Inner Circle CRM 🔥</title>
-<link rel="preconnect" href="https://fonts.googleapis.com"/>
 <link href="https://fonts.googleapis.com/css2?family=Nunito:wght@400;600;700;800;900&family=Nunito+Sans:wght@400;600;700&display=swap" rel="stylesheet"/>
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
@@ -19,536 +18,345 @@ html,body,#root{height:100%;font-family:'Nunito Sans',sans-serif}
 </style>
 </head>
 <body>
-<div id="root"></div>
-
-<!-- Firebase -->
+<div id="root"><div style="height:100vh;display:flex;align-items:center;justify-content:center;font-size:18px;color:#9B9B9B;font-family:'Nunito',sans-serif">🔥 Loading…</div></div>
 <script type="module">
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
-import { getFirestore, collection, doc, onSnapshot, setDoc, updateDoc, deleteDoc, query, orderBy, serverTimestamp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
+import { getFirestore,collection,doc,onSnapshot,setDoc,updateDoc,query,orderBy,serverTimestamp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
 
-// ── Firebase init (no login — fixed user ID) ──────────────
 const app = initializeApp({
-  apiKey: "AIzaSyDINHNV1Ze3QfhXwBPwe22LnUe-xxnU-n4",
-  authDomain: "inner-circle-crm.firebaseapp.com",
-  projectId: "inner-circle-crm",
-  storageBucket: "inner-circle-crm.firebasestorage.app",
-  messagingSenderId: "805498964211",
-  appId: "1:805498964211:web:be124fa6606b7bc2010f86"
+  apiKey:"AIzaSyDINHNV1Ze3QfhXwBPwe22LnUe-xxnU-n4",
+  authDomain:"inner-circle-crm.firebaseapp.com",
+  projectId:"inner-circle-crm",
+  storageBucket:"inner-circle-crm.firebasestorage.app",
+  messagingSenderId:"805498964211",
+  appId:"1:805498964211:web:be124fa6606b7bc2010f86"
 });
 const db = getFirestore(app);
-// Fixed user ID — no login needed, data always goes to same place
 const FIXED_UID = "owner-inner-circle-crm";
 
-// ── Constants ─────────────────────────────────────────────
 const GROUPS = [{id:"all",label:"Everyone",icon:"🌐"},{id:"bbq",label:"BBQ Team",icon:"🍖"},{id:"friends",label:"Close Friends",icon:"🍺"},{id:"kids",label:"Kids' Parents",icon:"⚽"},{id:"family",label:"Family",icon:"🏡"}];
 const TAG_META = {bbq:{label:"🍖 BBQ",bg:"#FFF3E0",col:"#E65100"},friends:{label:"🍺 Friends",bg:"#E8F5E9",col:"#2E7D32"},kids:{label:"⚽ Kids",bg:"#E3F2FD",col:"#1565C0"},family:{label:"🏡 Family",bg:"#FCE4EC",col:"#880E4F"},work:{label:"💼 Work",bg:"#F3E5F5",col:"#6A1B9A"}};
 const COLORS = ["#FF6B35","#3498DB","#2ECC71","#9B59B6","#E91E63","#F39C12","#1ABC9C"];
 const OCCASIONS = ["🎂 Birthday","🎄 Christmas","🎁 Holiday","👨‍👧 Father's Day","👩‍👧 Mother's Day","🎓 Graduation","🏠 Housewarming","💍 Wedding","⭐ Just because"];
 
-// ── State ─────────────────────────────────────────────────
-let STATE = {
-  contacts: [], syncStatus: "synced",
-  view: "dashboard", group: "all", detail: null, showAdd: false,
-  addContactColor: COLORS[0], addContactTags: [],
-  addOccasion: "🎂 Birthday", draftText: null, draftLoading: false,
-  noteAdding: false, giftAdding: false, giftGenerating: false,
-  firestoreUnsub: null
+let S = {
+  contacts:[],syncStatus:"synced",
+  view:"dashboard",group:"all",
+  detail:null,showAdd:false,
+  addColor:COLORS[0],addTags:[],
+  addOccasion:"🎂 Birthday",
+  draftText:null,draftLoading:false,
+  noteAdding:false,giftAdding:false,giftGenerating:false,
+  unsub:null
 };
-let addFormData = {};
 
+// helpers
 function uid(){return Date.now().toString(36)+Math.random().toString(36).slice(2);}
-function today(){return new Date().toISOString().slice(0,10);}
-function daysSince(d){if(!d)return 999;return Math.floor((new Date()-new Date(d))/86400000);}
-function daysUntilBday(b){if(!b)return null;const dt=new Date(b);const next=new Date(new Date().getFullYear(),dt.getMonth(),dt.getDate());if(next<new Date())next.setFullYear(new Date().getFullYear()+1);return Math.floor((next-new Date())/86400000);}
-function fmtBday(b){if(!b)return null;return new Date(b).toLocaleDateString("en-US",{month:"long",day:"numeric"});}
-function fmtDate(iso){return new Date(iso).toLocaleDateString("en-US",{month:"short",day:"numeric",year:"numeric"});}
-function initials(c){return((c.fname||"")[0]+(c.lname||"")[0]||"").toUpperCase();}
-function urgency(days,nudge){const r=days/nudge;if(r>=1.5)return{col:"#E74C3C",bg:"#FDECEC",label:`🚨 ${days}d — overdue`};if(r>=0.8)return{col:"#F39C12",bg:"#FEF9EC",label:`⏰ ${days}d — getting close`};return{col:"#27AE60",bg:"#EAFAF1",label:`✅ ${days}d ago`};}
-function getNudgeList(){return STATE.contacts.filter(c=>{const d=daysSince(c.lastContact);return d>=c.nudgeDays*0.8;}).sort((a,b)=>(daysSince(b.lastContact)/b.nudgeDays)-(daysSince(a.lastContact)/a.nudgeDays));}
-function getBdayList(){return STATE.contacts.filter(c=>c.birthday).map(c=>({...c,dbu:daysUntilBday(c.birthday)})).sort((a,b)=>a.dbu-b.dbu);}
+function tod(){return new Date().toISOString().slice(0,10);}
+function daysSince(d){if(!d)return 999;return Math.floor((Date.now()-new Date(d).getTime())/86400000);}
+function dbu(b){if(!b)return null;const dt=new Date(b);const n=new Date();const nx=new Date(n.getFullYear(),dt.getMonth(),dt.getDate());if(nx<n)nx.setFullYear(n.getFullYear()+1);return Math.floor((nx-n)/86400000);}
+function fmtB(b){if(!b)return null;return new Date(b).toLocaleDateString("en-US",{month:"long",day:"numeric"});}
+function fmtD(iso){return new Date(iso).toLocaleDateString("en-US",{month:"short",day:"numeric",year:"numeric"});}
+function ini(c){return((c.fname||"")[0]+(c.lname||"")[0]||"").toUpperCase();}
+function urg(days,nudge){const r=days/nudge;if(r>=1.5)return{col:"#E74C3C",bg:"#FDECEC",label:"🚨 "+days+"d — overdue"};if(r>=0.8)return{col:"#F39C12",bg:"#FEF9EC",label:"⏰ "+days+"d — getting close"};return{col:"#27AE60",bg:"#EAFAF1",label:"✅ "+days+"d ago"};}
+function nudgeList(){return S.contacts.filter(c=>daysSince(c.lastContact)>=c.nudgeDays*0.8).sort((a,b)=>(daysSince(b.lastContact)/b.nudgeDays)-(daysSince(a.lastContact)/a.nudgeDays));}
+function bdayList(){return S.contacts.filter(c=>c.birthday).map(c=>({...c,dbu:dbu(c.birthday)})).sort((a,b)=>a.dbu-b.dbu);}
+function cRef(id){return doc(db,"users",FIXED_UID,"contacts",id);}
+function cCol(){return collection(db,"users",FIXED_UID,"contacts");}
+function tagPill(tag){const m=TAG_META[tag]||{label:tag,bg:"#F3F4F6",col:"#6B7280"};return '<span style="font-size:10px;font-weight:700;padding:2px 8px;border-radius:20px;background:'+m.bg+';color:'+m.col+'">'+m.label+'</span>';}
+function syncBadge(){const map={synced:{i:"☁️",l:"Synced",c:"#27AE60",b:"#EAFAF1"},saving:{i:"⏳",l:"Saving…",c:"#F39C12",b:"#FEF9EC"},error:{i:"⚠️",l:"Error",c:"#E74C3C",b:"#FDECEC"}};const s=map[S.syncStatus]||map.synced;return '<div style="display:inline-flex;align-items:center;gap:5px;padding:4px 10px;border-radius:20px;background:'+s.b+';font-size:11px;font-weight:700;color:'+s.c+';font-family:Nunito,sans-serif">'+s.i+' '+s.l+'</div>';}
 
-// ── Firebase helpers ──────────────────────────────────────
-function contactsRef(){return collection(db,"users",FIXED_UID,"contacts");}
-function contactRef(id){return doc(db,"users",FIXED_UID,"contacts",id);}
+// firebase
+async function fbSet(c){S.syncStatus="saving";render();try{await setDoc(cRef(c.id),{...c,_ts:serverTimestamp()});}catch(e){S.syncStatus="error";render();}}
+async function fbUp(id,p){S.syncStatus="saving";render();try{await updateDoc(cRef(id),p);}catch(e){S.syncStatus="error";render();}}
 
-async function fbSave(contact){
-  STATE.syncStatus="saving"; render();
-  try{ await setDoc(contactRef(contact.id),{...contact,createdAt:serverTimestamp()}); }
-  catch(e){ console.error(e); STATE.syncStatus="error"; render(); }
-}
-async function fbUpdate(id,patch){
-  STATE.syncStatus="saving"; render();
-  try{ await updateDoc(contactRef(id),patch); }
-  catch(e){ console.error(e); STATE.syncStatus="error"; render(); }
-}
-
-// ── Auto-start — no login needed ─────────────────────────
-function subscribeContacts(){
-  if(STATE.firestoreUnsub) STATE.firestoreUnsub();
-  const q=query(contactsRef(),orderBy("createdAt","asc"));
-  STATE.firestoreUnsub=onSnapshot(q,snap=>{
-    STATE.contacts=snap.docs.map(d=>({id:d.id,...d.data()}));
-    STATE.syncStatus="synced";
-    if(STATE.detail){
-      const updated=STATE.contacts.find(c=>c.id===STATE.detail.id);
-      if(updated) STATE.detail=updated;
-    }
+// subscribe
+(function start(){
+  const q=query(cCol(),orderBy("_ts","asc"));
+  S.unsub=onSnapshot(q,snap=>{
+    S.contacts=snap.docs.map(d=>({id:d.id,...d.data()}));
+    S.syncStatus="synced";
+    if(S.detail){const u=S.contacts.find(c=>c.id===S.detail.id);if(u)S.detail=u;}
     render();
-  },()=>{STATE.syncStatus="error";render();});
-}
+  },()=>{S.syncStatus="error";render();});
+})();
 
-// Start immediately — no auth needed
-subscribeContacts();
-
-// ── AI ────────────────────────────────────────────────────
+// AI
 async function callAI(prompt){
   try{
-    const res=await fetch("https://api.anthropic.com/v1/messages",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({model:"claude-sonnet-4-20250514",max_tokens:200,messages:[{role:"user",content:prompt}]})});
-    const data=await res.json();
-    return data.content?.find(b=>b.type==="text")?.text?.trim()||null;
+    const r=await fetch("https://api.anthropic.com/v1/messages",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({model:"claude-sonnet-4-20250514",max_tokens:200,messages:[{role:"user",content:prompt}]})});
+    const d=await r.json();
+    return d.content?.find(b=>b.type==="text")?.text?.trim()||null;
   }catch{return null;}
 }
 
-// ── Actions ───────────────────────────────────────────────
-async function markContacted(id){
-  await fbUpdate(id,{lastContact:today()});
-  STATE.detail=null; render();
+// actions
+async function markContacted(id){await fbUp(id,{lastContact:tod()});S.detail=null;render();}
+async function addNote(id,text){const c=S.contacts.find(x=>x.id===id);const n={id:uid(),date:tod(),text};const notes=[n,...(c.contactNotes||[])];await fbUp(id,{contactNotes:notes,lastContact:tod()});S.noteAdding=false;render();}
+async function delNote(cid,nid){const c=S.contacts.find(x=>x.id===cid);await fbUp(cid,{contactNotes:(c.contactNotes||[]).filter(n=>n.id!==nid)});}
+async function addGift(cid,g){const c=S.contacts.find(x=>x.id===cid);await fbUp(cid,{gifts:[...(c.gifts||[]),g]});}
+async function delGift(cid,gid){const c=S.contacts.find(x=>x.id===cid);await fbUp(cid,{gifts:(c.gifts||[]).filter(g=>g.id!==gid)});}
+async function togGift(cid,gid){const c=S.contacts.find(x=>x.id===cid);await fbUp(cid,{gifts:(c.gifts||[]).map(g=>g.id===gid?{...g,bought:!g.bought}:g)});}
+async function genDraft(type){
+  const c=S.detail;if(!c)return;
+  S.draftLoading=true;S.draftText=null;render();
+  const fb={catchup:"Hey "+c.fname+"! Been way too long. Hope everything's good with you and the fam. We need to catch up soon!",hangout:"Yo "+c.fname+"! We should get together soon — cold drinks, good hangs. You in? 🍺",birthday:"Happy birthday "+c.fname+"! Hope it's a great one! 🎉",bbq:"Hey "+c.fname+"! Firing up the grill this weekend — you and the family should come through! 🔥"};
+  const ps={catchup:"Laid-back dad texting friend "+c.fname+" to check in. Short casual warm iMessage 2-3 sentences. Background: "+(c.note||"old friend")+". Just the message.",hangout:"Fun casual text to "+c.fname+" suggesting hanging out. Chill dad energy. 2-3 sentences. Just the message.",birthday:"Short genuine birthday text to "+c.fname+". Real friend vibe. Just the message.",bbq:"Casual BBQ invite to "+c.fname+". Fun low-pressure. Just the message."};
+  S.draftText=await callAI(ps[type])||fb[type];
+  S.draftLoading=false;render();
 }
-async function addNote(contactId,text){
-  const c=STATE.contacts.find(x=>x.id===contactId);
-  const n={id:uid(),date:today(),text};
-  const notes=[n,...(c.contactNotes||[])];
-  await fbUpdate(contactId,{contactNotes:notes,lastContact:today()});
-  STATE.noteAdding=false; render();
-}
-async function deleteNote(contactId,noteId){
-  const c=STATE.contacts.find(x=>x.id===contactId);
-  const notes=(c.contactNotes||[]).filter(n=>n.id!==noteId);
-  await fbUpdate(contactId,{contactNotes:notes});
-}
-async function addGift(contactId,gift){
-  const c=STATE.contacts.find(x=>x.id===contactId);
-  const gifts=[...(c.gifts||[]),gift];
-  await fbUpdate(contactId,{gifts});
-}
-async function deleteGift(contactId,giftId){
-  const c=STATE.contacts.find(x=>x.id===contactId);
-  const gifts=(c.gifts||[]).filter(g=>g.id!==giftId);
-  await fbUpdate(contactId,{gifts});
-}
-async function toggleGift(contactId,giftId){
-  const c=STATE.contacts.find(x=>x.id===contactId);
-  const gifts=(c.gifts||[]).map(g=>g.id===giftId?{...g,bought:!g.bought}:g);
-  await fbUpdate(contactId,{gifts});
-}
-async function saveNewContact(){
-  const fname=(document.getElementById('ac-fname')||{}).value?.trim();
-  if(!fname)return;
-  const c={
-    id:uid(),
-    fname,
-    lname:(document.getElementById('ac-lname')||{}).value?.trim()||"",
-    phone:(document.getElementById('ac-phone')||{}).value?.trim()||"",
-    birthday:(document.getElementById('ac-bday')||{}).value||"",
-    note:(document.getElementById('ac-note')||{}).value?.trim()||"",
-    nudgeDays:parseInt((document.getElementById('ac-nudge')||{}).value)||30,
-    color:STATE.addContactColor,
-    tags:[...STATE.addContactTags],
-    lastContact:null,
-    contactNotes:[],
-    gifts:[]
-  };
-  STATE.showAdd=false; STATE.addContactTags=[]; render();
-  await fbSave(c);
-}
-
-async function generateDraft(type){
-  const c=STATE.detail; if(!c)return;
-  STATE.draftLoading=true; STATE.draftText=null; render();
-  const prompts={
-    catchup:`You're a laid-back easygoing dad texting your friend ${c.fname} to check in. Haven't reached out in a while. Write a short casual warm iMessage (2-3 sentences). Not cheesy. Background: ${c.note||"old friend"}. Just the message, no quotes.`,
-    hangout:`Write a fun casual text to ${c.fname} suggesting hanging out. Chill dad energy. Background: ${c.note||"friend"}. 2-3 sentences. Just the message, no quotes.`,
-    birthday:`Short genuine birthday text to ${c.fname}. Real friend vibe, not a Hallmark card. Maybe a light joke. Just the message, no quotes.`,
-    bbq:`Casual BBQ invite text to ${c.fname}. Fun and low-pressure. Mention food and cold drinks. Background: ${c.note||"BBQ buddy"}. Just the message, no quotes.`,
-  };
-  const fallbacks={catchup:`Hey ${c.fname}! Been way too long man. Hope everything's good with you and the fam. We need to catch up soon!`,hangout:`Yo ${c.fname}! We should get together soon — cold drinks, good hangs. You in? 🍺`,birthday:`Happy birthday ${c.fname}! Hope it's a great one! 🎉`,bbq:`Hey ${c.fname}! Firing up the grill this weekend — you and the family should come through! 🔥`};
-  STATE.draftText=await callAI(prompts[type])||fallbacks[type];
-  STATE.draftLoading=false; render();
-}
-
-async function generateGiftIdeas(){
-  const c=STATE.detail; if(!c)return;
-  STATE.giftGenerating=true; render();
+async function genGifts(){
+  const c=S.detail;if(!c)return;
+  S.giftGenerating=true;render();
   try{
-    const raw=await callAI(`Give me 3 specific practical gift ideas for ${c.fname} for ${STATE.addOccasion}. Background: ${c.note||"a friend"}. Each idea under 10 words. Return ONLY a JSON array of strings, no markdown. Example: ["Gift one","Gift two","Gift three"]`);
+    const raw=await callAI('3 specific gift ideas for '+c.fname+' for '+S.addOccasion+'. Background: '+(c.note||"friend")+'. Under 10 words each. Return ONLY a JSON array like ["idea1","idea2","idea3"] no markdown.');
     const ideas=JSON.parse((raw||"[]").replace(/```json|```/g,"").trim());
-    for(let i=0;i<ideas.length;i++) await addGift(c.id,{id:uid()+i,text:ideas[i],occasion:STATE.addOccasion,bought:false,date:today()});
+    for(let i=0;i<ideas.length;i++)await addGift(c.id,{id:uid()+i,text:ideas[i],occasion:S.addOccasion,bought:false,date:tod()});
   }catch{
-    const defaults=["Something personalized they'd actually use","A gift card to their favorite spot","A fun experience to do together"];
-    for(let i=0;i<defaults.length;i++) await addGift(c.id,{id:uid()+i,text:defaults[i],occasion:STATE.addOccasion,bought:false,date:today()});
+    const d=["Something personalized they'd love","Gift card to their favorite spot","A fun experience together"];
+    for(let i=0;i<d.length;i++)await addGift(c.id,{id:uid()+i,text:d[i],occasion:S.addOccasion,bought:false,date:tod()});
   }
-  STATE.giftGenerating=false; STATE.giftAdding=false; render();
+  S.giftGenerating=false;S.giftAdding=false;render();
 }
 
-// ── HTML builders ─────────────────────────────────────────
-function tagPill(tag){const m=TAG_META[tag]||{label:tag,bg:"#F3F4F6",col:"#6B7280"};return `<span style="font-size:10px;font-weight:700;padding:2px 8px;border-radius:20px;background:${m.bg};color:${m.col};font-family:'Nunito',sans-serif">${m.label}</span>`;}
-
-function syncBadge(){
-  const map={synced:{icon:"☁️",label:"Synced",col:"#27AE60",bg:"#EAFAF1"},saving:{icon:"⏳",label:"Saving…",col:"#F39C12",bg:"#FEF9EC"},offline:{icon:"📵",label:"Offline",col:"#9B9B9B",bg:"#F5F5F5"},error:{icon:"⚠️",label:"Error",col:"#E74C3C",bg:"#FDECEC"}};
-  const s=map[STATE.syncStatus]||map.synced;
-  return `<div style="display:flex;align-items:center;gap:5px;padding:4px 10px;border-radius:20px;background:${s.bg};font-size:11px;font-weight:700;color:${s.col};font-family:'Nunito',sans-serif">${s.icon} ${s.label}</div>`;
-}
-
-function sidebar(){
-  const nudgeCount=getNudgeList().length;
-  function navItem(v,icon,label,badge=""){
-    const active=STATE.view===v&&STATE.group==="all";
-    return `<div onclick="setView('${v}')" style="display:flex;align-items:center;gap:10px;padding:9px 16px;cursor:pointer;font-size:13px;font-weight:600;color:${active?"#FF6B35":"#CDD6F4"};background:${active?"rgba(255,107,53,0.12)":"transparent"};border-left:3px solid ${active?"#FF6B35":"transparent"};transition:all 0.15s">
-      <span style="font-size:15px;width:20px;text-align:center">${icon}</span>${label}
-      ${badge?`<span style="margin-left:auto;background:#FF6B35;color:#fff;font-size:10px;font-weight:800;padding:1px 6px;border-radius:20px">${badge}</span>`:""}
-    </div>`;
+// ── views ──────────────────────────────────────────────────
+function dashView(){
+  const nl=nudgeList(),bl=bdayList();
+  let h='<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;margin-bottom:16px">';
+  [[S.contacts.length,"👥","Contacts","#FFF3E0","#2C2C2C"],[nl.length,"💬","To text","#FDECEC","#E74C3C"],[bl.filter(b=>b.dbu<=14).length,"🎂","Bdays soon","#FFF8E1","#F39C12"]].forEach(function(x){
+    h+='<div style="background:#fff;border-radius:12px;padding:14px;border:1px solid #F0E8DF;text-align:center"><div style="font-size:22px;margin-bottom:4px">'+x[1]+'</div><div style="font-size:22px;font-weight:900;color:'+x[4]+';font-family:Nunito,sans-serif">'+x[0]+'</div><div style="font-size:11px;color:#9B9B9B;font-weight:600;margin-top:2px">'+x[2]+'</div></div>';
+  });
+  h+='</div>';
+  if(nl.length){
+    h+='<div style="background:#fff;border-radius:14px;border:1px solid #F0E8DF;margin-bottom:14px;overflow:hidden"><div style="padding:12px 16px;border-bottom:1px solid #F0E8DF;display:flex;align-items:center;justify-content:space-between"><span style="font-weight:800;font-size:14px;font-family:Nunito,sans-serif">👋 Reach out</span><button onclick="window._sv(\'nudges\')" style="padding:4px 10px;border-radius:8px;border:1.5px solid #E0E0E0;background:#fff;font-size:12px;cursor:pointer;color:#9B9B9B">See all</button></div>';
+    nl.slice(0,3).forEach(function(c){
+      var d=daysSince(c.lastContact),u=urg(d===999?0:d,c.nudgeDays);
+      h+='<div style="display:flex;align-items:center;gap:12px;padding:10px 16px;border-bottom:1px solid #F5F5F5"><div style="width:38px;height:38px;border-radius:50%;background:'+c.color+'22;color:'+c.color+';display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:900;flex-shrink:0">'+ini(c)+'</div><div style="flex:1"><div style="font-weight:800;font-size:14px;font-family:Nunito,sans-serif">'+c.fname+' '+c.lname+'</div><span style="font-size:11px;font-weight:700;padding:2px 7px;border-radius:20px;background:'+u.bg+';color:'+u.col+'">'+u.label+'</span></div><button onclick="window._od(\''+c.id+'\')" style="padding:6px 12px;border-radius:8px;border:none;background:#34C759;color:#fff;font-weight:800;font-size:12px;cursor:pointer">Text 💬</button></div>';
+    });
+    h+='</div>';
   }
-  function grpItem(g){
-    const active=STATE.view==="contacts"&&STATE.group===g.id;
-    return `<div onclick="setGroup('${g.id}')" style="display:flex;align-items:center;gap:10px;padding:9px 16px;cursor:pointer;font-size:13px;font-weight:600;color:${active?"#FF6B35":"#CDD6F4"};background:${active?"rgba(255,107,53,0.12)":"transparent"};border-left:3px solid ${active?"#FF6B35":"transparent"};transition:all 0.15s">
-      <span style="font-size:15px;width:20px;text-align:center">${g.icon}</span>${g.label}
-    </div>`;
+  if(bl.length){
+    h+='<div style="background:#fff;border-radius:14px;border:1px solid #F0E8DF;overflow:hidden"><div style="padding:12px 16px;border-bottom:1px solid #F0E8DF;display:flex;align-items:center;justify-content:space-between"><span style="font-weight:800;font-size:14px;font-family:Nunito,sans-serif">🎂 Birthdays</span><button onclick="window._sv(\'birthdays\')" style="padding:4px 10px;border-radius:8px;border:1.5px solid #E0E0E0;background:#fff;font-size:12px;cursor:pointer;color:#9B9B9B">See all</button></div>';
+    bl.slice(0,3).forEach(function(c){
+      h+='<div onclick="window._od(\''+c.id+'\')" style="display:flex;align-items:center;gap:12px;padding:10px 16px;border-bottom:1px solid #F5F5F5;cursor:pointer"><div style="width:38px;height:38px;border-radius:50%;background:'+c.color+'22;color:'+c.color+';display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:900;flex-shrink:0">'+ini(c)+'</div><div style="flex:1"><div style="font-weight:800;font-size:14px;font-family:Nunito,sans-serif">'+c.fname+' '+c.lname+'</div><div style="font-size:12px;color:#9B9B9B">'+fmtB(c.birthday)+'</div></div><div style="font-size:18px;font-weight:900;font-family:Nunito,sans-serif;color:'+(c.dbu===0?"#E74C3C":c.dbu<=7?"#F39C12":"#FF6B35")+'">'+(c.dbu===0?"🎉Today!":c.dbu+"d")+'</div></div>';
+    });
+    h+='</div>';
   }
-  return `<div style="width:210px;background:#1E1E2E;display:flex;flex-direction:column;flex-shrink:0;overflow-y:auto;height:100vh">
-    <div style="padding:22px 20px 14px;font-family:'Nunito',sans-serif;font-size:17px;font-weight:900;color:#fff;border-bottom:1px solid rgba(255,255,255,0.08);display:flex;align-items:center;gap:8px">
-      <span style="font-size:22px">🔥</span> Inner Circle
-    </div>
-    <div style="padding:8px 12px 4px">
-      ${syncBadge()}
-    </div>
-    <div style="padding:10px 12px 4px;font-size:10px;font-weight:700;color:rgba(255,255,255,0.3);text-transform:uppercase;letter-spacing:1.5px">Menu</div>
-    ${navItem("dashboard","🏠","Dashboard")}
-    ${navItem("contacts","👥","Contacts")}
-    ${navItem("birthdays","🎂","Birthdays")}
-    ${navItem("nudges","💬","Nudges",nudgeCount||"")}
-    <div style="padding:10px 12px 4px;font-size:10px;font-weight:700;color:rgba(255,255,255,0.3);text-transform:uppercase;letter-spacing:1.5px;margin-top:8px">Groups</div>
-    ${GROUPS.map(grpItem).join("")}
-    <div style="flex:1"></div>
-    <div style="padding:12px 16px;border-top:1px solid rgba(255,255,255,0.06)">
-      <div style="font-size:11px;color:rgba(255,255,255,0.2);text-align:center">Inner Circle CRM</div>
-    </div>
-  </div>`;
-}
-
-function dashboardView(){
-  const nudges=getNudgeList();
-  const bdays=getBdayList();
-  const stats=[
-    [STATE.contacts.length,"👥","People in your circle","#FFF3E0","#2C2C2C"],
-    [nudges.length,"💬","Could use a text","#FDECEC","#E74C3C"],
-    [bdays.filter(b=>b.dbu<=14).length,"🎂","Birthdays in 2 weeks","#FFF8E1","#F39C12"]
-  ];
-  let html=`<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:16px;margin-bottom:20px">
-    ${stats.map(([n,icon,label,bg,col])=>`<div style="background:#fff;border-radius:14px;padding:18px 20px;border:1px solid #F0E8DF;display:flex;align-items:center;gap:14px">
-      <div style="width:44px;height:44px;border-radius:12px;background:${bg};display:flex;align-items:center;justify-content:center;font-size:20px;flex-shrink:0">${icon}</div>
-      <div><div style="font-size:26px;font-weight:900;color:${col};font-family:'Nunito',sans-serif">${n}</div><div style="font-size:12px;color:#9B9B9B;font-weight:600;margin-top:2px">${label}</div></div>
-    </div>`).join("")}
-  </div>`;
-
-  if(nudges.length){
-    html+=`<div style="background:#fff;border-radius:16px;border:1px solid #F0E8DF;margin-bottom:20px;overflow:hidden">
-      <div style="padding:14px 20px;border-bottom:1px solid #F0E8DF;display:flex;align-items:center;justify-content:space-between">
-        <span style="font-weight:800;font-size:15px;font-family:'Nunito',sans-serif">👋 Time to reach out</span>
-        <button onclick="setView('nudges')" style="padding:5px 12px;border-radius:8px;border:1.5px solid #E0E0E0;background:#fff;font-size:12px;font-weight:600;cursor:pointer;font-family:'Nunito Sans',sans-serif;color:#9B9B9B">See all</button>
-      </div>
-      <div style="padding:10px 16px">
-        ${nudges.slice(0,3).map(c=>{const d=daysSince(c.lastContact);const u=urgency(d===999?0:d,c.nudgeDays);return`<div style="display:flex;align-items:center;gap:14px;padding:10px 0;border-bottom:1px solid #F5F5F5">
-          <div style="width:42px;height:42px;border-radius:50%;background:${c.color}22;color:${c.color};display:flex;align-items:center;justify-content:center;font-size:14px;font-weight:900;font-family:'Nunito',sans-serif;flex-shrink:0">${initials(c)}</div>
-          <div style="flex:1"><div style="font-weight:800;font-size:14px;font-family:'Nunito',sans-serif">${c.fname} ${c.lname}</div><span style="font-size:11px;font-weight:700;padding:2px 8px;border-radius:20px;background:${u.bg};color:${u.col}">${u.label}</span></div>
-          <button onclick="openDetail('${c.id}')" style="padding:7px 14px;border-radius:10px;border:none;background:#34C759;color:#fff;font-weight:800;font-size:12px;cursor:pointer;font-family:'Nunito',sans-serif">Draft Text 💬</button>
-        </div>`;}).join("")}
-      </div>
-    </div>`;
+  if(!S.contacts.length){
+    h='<div style="text-align:center;padding:50px 20px"><div style="font-size:48px;margin-bottom:12px">👋</div><div style="font-family:Nunito,sans-serif;font-size:20px;font-weight:800;margin-bottom:8px">Welcome!</div><div style="font-size:14px;color:#9B9B9B;line-height:1.6;margin-bottom:24px">Add your BBQ crew, close friends,<br>kids\' parents — whoever matters.</div><button onclick="window._oa()" style="padding:12px 24px;border-radius:12px;border:none;background:#FF6B35;color:#fff;font-weight:800;font-size:15px;cursor:pointer;font-family:Nunito,sans-serif">+ Add first contact 🔥</button></div>';
   }
-
-  if(bdays.length){
-    html+=`<div style="background:#fff;border-radius:16px;border:1px solid #F0E8DF;overflow:hidden">
-      <div style="padding:14px 20px;border-bottom:1px solid #F0E8DF;display:flex;align-items:center;justify-content:space-between">
-        <span style="font-weight:800;font-size:15px;font-family:'Nunito',sans-serif">🎂 Upcoming birthdays</span>
-        <button onclick="setView('birthdays')" style="padding:5px 12px;border-radius:8px;border:1.5px solid #E0E0E0;background:#fff;font-size:12px;font-weight:600;cursor:pointer;color:#9B9B9B">See all</button>
-      </div>
-      <div style="padding:0 20px">
-        ${bdays.slice(0,3).map(c=>`<div onclick="openDetail('${c.id}')" style="display:flex;align-items:center;gap:14px;padding:12px 0;border-bottom:1px solid #F5F5F5;cursor:pointer">
-          <div style="width:40px;height:40px;border-radius:50%;background:${c.color}22;color:${c.color};display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:900;font-family:'Nunito',sans-serif;flex-shrink:0">${initials(c)}</div>
-          <div style="flex:1"><div style="font-weight:800;font-size:14px;font-family:'Nunito',sans-serif">${c.fname} ${c.lname}</div><div style="font-size:12px;color:#9B9B9B;margin-top:2px">${fmtBday(c.birthday)}</div></div>
-          <div style="font-family:'Nunito',sans-serif;font-size:20px;font-weight:900;color:${c.dbu===0?"#E74C3C":c.dbu<=7?"#F39C12":"#FF6B35"}">${c.dbu===0?"🎉 Today!":c.dbu+"d"}</div>
-        </div>`).join("")}
-      </div>
-    </div>`;
-  }
-
-  if(!STATE.contacts.length){
-    html=`<div style="text-align:center;padding:60px 20px;color:#9B9B9B">
-      <div style="font-size:48px;margin-bottom:16px">👋</div>
-      <div style="font-family:'Nunito',sans-serif;font-size:20px;font-weight:800;color:#2C2C2C;margin-bottom:8px">Welcome to Inner Circle!</div>
-      <div style="font-size:14px;line-height:1.6;margin-bottom:24px">Add your first contact to get started.<br>Your BBQ crew, close friends, kids' parents — whoever matters.</div>
-      <button onclick="openAdd()" style="padding:12px 24px;border-radius:12px;border:none;background:#FF6B35;color:#fff;font-weight:800;font-size:15px;cursor:pointer;font-family:'Nunito',sans-serif;box-shadow:0 4px 14px #FF6B3544">+ Add your first contact 🔥</button>
-    </div>`;
-  }
-  return html;
+  return h;
 }
 
 function contactsView(){
-  const list=STATE.group==="all"?STATE.contacts:STATE.contacts.filter(c=>(c.tags||[]).includes(STATE.group));
-  if(!list.length) return`<div style="text-align:center;padding:40px;color:#9B9B9B"><div style="font-size:40px;margin-bottom:12px">👥</div><p>No contacts here yet — add some!</p></div>`;
-  return`<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:14px">
-    ${list.map(c=>{const d=daysSince(c.lastContact);const bdu=daysUntilBday(c.birthday);const u=urgency(d===999?0:d,c.nudgeDays);return`
-    <div onclick="openDetail('${c.id}')" onmouseenter="this.style.boxShadow='0 6px 20px rgba(0,0,0,0.08)'" onmouseleave="this.style.boxShadow='none'" style="background:#fff;border-radius:16px;padding:18px;border:1px solid #F0E8DF;cursor:pointer;position:relative;overflow:hidden;transition:all 0.15s">
-      <div style="position:absolute;top:0;left:0;right:0;height:4px;background:${c.color}"></div>
-      <div style="width:50px;height:50px;border-radius:50%;background:${c.color}22;color:${c.color};display:flex;align-items:center;justify-content:center;font-size:17px;font-weight:900;font-family:'Nunito',sans-serif;margin:8px 0 10px">${initials(c)}</div>
-      <div style="font-weight:800;font-size:15px;color:#2C2C2C;font-family:'Nunito',sans-serif">${c.fname} ${c.lname}</div>
-      <div style="font-size:12px;color:#9B9B9B;margin-top:3px">${c.note?c.note.slice(0,45)+"…":""}</div>
-      <div style="display:flex;align-items:center;justify-content:space-between;margin-top:12px;padding-top:10px;border-top:1px solid #F0E8DF">
-        <div style="display:flex;gap:4px;flex-wrap:wrap">${(c.tags||[]).slice(0,2).map(tagPill).join("")}</div>
-        <span style="font-size:11px;font-weight:700;color:${u.col}">${d===999?"never":d+"d"}</span>
-      </div>
-      ${bdu!==null&&bdu<=14?`<div style="margin-top:8px;font-size:11px;font-weight:700;color:#FF6B35">🎂 ${bdu===0?"Today!":"In "+bdu+"d"}</div>`:""}
-    </div>`;}).join("")}
-  </div>`;
+  var list=S.group==="all"?S.contacts:S.contacts.filter(function(c){return(c.tags||[]).includes(S.group);});
+  if(!list.length)return '<div style="text-align:center;padding:40px;color:#9B9B9B"><div style="font-size:40px;margin-bottom:12px">👥</div><p>No contacts here yet!</p></div>';
+  var h='<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:12px">';
+  list.forEach(function(c){
+    var d=daysSince(c.lastContact),bd=dbu(c.birthday),u=urg(d===999?0:d,c.nudgeDays);
+    h+='<div onclick="window._od(\''+c.id+'\')" style="background:#fff;border-radius:14px;padding:14px;border:1px solid #F0E8DF;cursor:pointer;position:relative;overflow:hidden"><div style="position:absolute;top:0;left:0;right:0;height:4px;background:'+c.color+'"></div><div style="width:44px;height:44px;border-radius:50%;background:'+c.color+'22;color:'+c.color+';display:flex;align-items:center;justify-content:center;font-size:15px;font-weight:900;margin:6px 0 8px">'+ini(c)+'</div><div style="font-weight:800;font-size:14px;color:#2C2C2C;font-family:Nunito,sans-serif">'+c.fname+' '+c.lname+'</div><div style="font-size:11px;color:#9B9B9B;margin-top:2px">'+(c.note?c.note.slice(0,35)+"…":"")+'</div><div style="display:flex;align-items:center;justify-content:space-between;margin-top:10px;padding-top:8px;border-top:1px solid #F0E8DF"><div style="display:flex;gap:3px;flex-wrap:wrap">'+(c.tags||[]).slice(0,1).map(tagPill).join("")+'</div><span style="font-size:11px;font-weight:700;color:'+u.col+'">'+(d===999?"never":d+"d")+'</span></div>'+(bd!==null&&bd<=14?'<div style="margin-top:6px;font-size:11px;font-weight:700;color:#FF6B35">🎂 '+(bd===0?"Today!":"In "+bd+"d")+'</div>':"")+'</div>';
+  });
+  h+='</div>';
+  return h;
 }
 
 function birthdaysView(){
-  const bdays=getBdayList();
-  if(!bdays.length) return`<div style="text-align:center;padding:40px;color:#9B9B9B"><div style="font-size:40px">🎂</div><p>Add birthdays to your contacts!</p></div>`;
-  return`<div style="background:#fff;border-radius:16px;border:1px solid #F0E8DF;padding:0 20px">
-    ${bdays.map(c=>`<div onclick="openDetail('${c.id}')" style="display:flex;align-items:center;gap:14px;padding:14px 0;border-bottom:1px solid #F5F5F5;cursor:pointer">
-      <div style="width:44px;height:44px;border-radius:50%;background:${c.color}22;color:${c.color};display:flex;align-items:center;justify-content:center;font-size:15px;font-weight:900;font-family:'Nunito',sans-serif;flex-shrink:0">${initials(c)}</div>
-      <div style="flex:1">
-        <div style="font-weight:800;font-size:15px;font-family:'Nunito',sans-serif">${c.fname} ${c.lname}</div>
-        <div style="font-size:12px;color:#9B9B9B;margin-top:2px">${fmtBday(c.birthday)} · turns ${new Date().getFullYear()-new Date(c.birthday).getFullYear()}</div>
-        <div style="display:flex;gap:4px;margin-top:5px">${(c.tags||[]).map(tagPill).join("")}</div>
-      </div>
-      <div style="text-align:right">
-        <div style="font-family:'Nunito',sans-serif;font-size:22px;font-weight:900;color:${c.dbu===0?"#E74C3C":c.dbu<=7?"#F39C12":"#FF6B35"}">${c.dbu===0?"🎉 Today!":c.dbu<=1?"Tomorrow!":c.dbu+"d"}</div>
-        ${c.dbu<=7?`<button onclick="event.stopPropagation();openDetail('${c.id}')" style="margin-top:6px;padding:6px 12px;border-radius:10px;border:none;background:#F39C12;color:#fff;font-weight:800;font-size:11px;cursor:pointer;font-family:'Nunito',sans-serif">Draft bday text 🎂</button>`:""}
-      </div>
-    </div>`).join("")}
-  </div>`;
+  var bl=bdayList();
+  if(!bl.length)return '<div style="text-align:center;padding:40px;color:#9B9B9B"><div style="font-size:40px">🎂</div><p style="margin-top:12px">Add birthdays to contacts!</p></div>';
+  var h='<div style="background:#fff;border-radius:14px;border:1px solid #F0E8DF;padding:0 16px">';
+  bl.forEach(function(c){
+    h+='<div onclick="window._od(\''+c.id+'\')" style="display:flex;align-items:center;gap:12px;padding:12px 0;border-bottom:1px solid #F5F5F5;cursor:pointer"><div style="width:40px;height:40px;border-radius:50%;background:'+c.color+'22;color:'+c.color+';display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:900;flex-shrink:0">'+ini(c)+'</div><div style="flex:1"><div style="font-weight:800;font-size:14px;font-family:Nunito,sans-serif">'+c.fname+' '+c.lname+'</div><div style="font-size:12px;color:#9B9B9B;margin-top:2px">'+fmtB(c.birthday)+' · turns '+(new Date().getFullYear()-new Date(c.birthday).getFullYear())+'</div></div><div style="text-align:right"><div style="font-family:Nunito,sans-serif;font-size:18px;font-weight:900;color:'+(c.dbu===0?"#E74C3C":c.dbu<=7?"#F39C12":"#FF6B35")+'">'+(c.dbu===0?"🎉Today!":c.dbu<=1?"Tomorrow!":c.dbu+"d")+'</div></div></div>';
+  });
+  h+='</div>';
+  return h;
 }
 
 function nudgesView(){
-  const nudges=getNudgeList();
-  if(!nudges.length) return`<div style="text-align:center;padding:40px;color:#9B9B9B"><div style="font-size:40px">🎉</div><p>You're all caught up!<br>Your circle feels the love.</p></div>`;
-  return`<div style="display:flex;flex-direction:column;gap:10px">
-    ${nudges.map(c=>{const d=daysSince(c.lastContact);const u=urgency(d===999?0:d,c.nudgeDays);return`
-    <div style="background:#fff;border-radius:14px;padding:14px 18px;border:1px solid #F0E8DF;display:flex;align-items:center;gap:14px">
-      <div style="width:44px;height:44px;border-radius:50%;background:${c.color}22;color:${c.color};display:flex;align-items:center;justify-content:center;font-size:15px;font-weight:900;font-family:'Nunito',sans-serif;flex-shrink:0">${initials(c)}</div>
-      <div style="flex:1;min-width:0">
-        <div style="font-weight:800;font-size:14px;font-family:'Nunito',sans-serif">${c.fname} ${c.lname}</div>
-        <div style="font-size:12px;color:#9B9B9B;margin-top:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${c.note||""}</div>
-        <span style="font-size:11px;font-weight:700;padding:2px 8px;border-radius:20px;background:${u.bg};color:${u.col};margin-top:4px;display:inline-block">${u.label}</span>
-      </div>
-      <button onclick="openDetail('${c.id}')" style="padding:8px 14px;border-radius:10px;border:none;background:#34C759;color:#fff;font-weight:800;font-size:12px;cursor:pointer;font-family:'Nunito',sans-serif;flex-shrink:0">Draft Text 💬</button>
-    </div>`;}).join("")}
-  </div>`;
+  var nl=nudgeList();
+  if(!nl.length)return '<div style="text-align:center;padding:40px;color:#9B9B9B"><div style="font-size:40px">🎉</div><p style="margin-top:12px">All caught up! Your circle feels the love.</p></div>';
+  var h='<div style="display:flex;flex-direction:column;gap:10px">';
+  nl.forEach(function(c){
+    var d=daysSince(c.lastContact),u=urg(d===999?0:d,c.nudgeDays);
+    h+='<div style="background:#fff;border-radius:12px;padding:12px 14px;border:1px solid #F0E8DF;display:flex;align-items:center;gap:12px"><div style="width:40px;height:40px;border-radius:50%;background:'+c.color+'22;color:'+c.color+';display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:900;flex-shrink:0">'+ini(c)+'</div><div style="flex:1;min-width:0"><div style="font-weight:800;font-size:14px;font-family:Nunito,sans-serif">'+c.fname+' '+c.lname+'</div><span style="font-size:11px;font-weight:700;padding:2px 7px;border-radius:20px;background:'+u.bg+';color:'+u.col+'">'+u.label+'</span></div><button onclick="window._od(\''+c.id+'\')" style="padding:7px 12px;border-radius:8px;border:none;background:#34C759;color:#fff;font-weight:800;font-size:12px;cursor:pointer;flex-shrink:0">Draft 💬</button></div>';
+  });
+  h+='</div>';
+  return h;
 }
 
-function detailPanel(){
-  const c=STATE.detail; if(!c) return"";
-  const d=daysSince(c.lastContact);
-  const bdu=daysUntilBday(c.birthday);
-  const isBday=bdu!==null&&bdu<=14;
-  const u=urgency(d===999?0:d,c.nudgeDays);
-  const notes=c.contactNotes||[];
-  const gifts=c.gifts||[];
+function detailHTML(){
+  var c=S.detail;if(!c)return "";
+  var d=daysSince(c.lastContact),bd=dbu(c.birthday),isBday=bd!==null&&bd<=14,u=urg(d===999?0:d,c.nudgeDays),notes=c.contactNotes||[],gifts=c.gifts||[];
 
-  // Draft section
-  let draftSection=`<div>
-    <div style="font-size:10px;font-weight:800;color:#9B9B9B;text-transform:uppercase;letter-spacing:1.5px;margin-bottom:8px;font-family:'Nunito',sans-serif">Draft a Text</div>`;
-  if(STATE.draftLoading){
-    draftSection+=`<div style="display:flex;align-items:center;gap:10px;padding:12px 14px;background:#F9FAFB;border-radius:12px;font-size:13px;color:#9B9B9B;font-style:italic">
-      <div style="width:15px;height:15px;border:2px solid #E0E0E0;border-top-color:#FF6B35;border-radius:50%;animation:spin 0.7s linear infinite"></div>Thinking of something good to say…
-    </div>`;
-  } else if(STATE.draftText){
-    const smsHref=c.phone?`sms:+${c.phone.replace(/\D/g,"")}?body=${encodeURIComponent(STATE.draftText)}`:"";
-    draftSection+=`<div style="background:#F0FFF4;border:1.5px solid #C8E6C9;border-radius:12px;padding:13px 15px;font-size:13px;color:#1B5E20;line-height:1.7;font-style:italic">${STATE.draftText.replace(/</g,"&lt;")}</div>
-    <div style="display:flex;gap:8px;margin-top:9px;flex-wrap:wrap">
-      ${smsHref?`<a href="${smsHref}" style="display:flex;align-items:center;gap:6px;padding:7px 13px;border-radius:10px;background:#34C759;color:#fff;font-weight:800;font-size:12px;text-decoration:none;font-family:'Nunito',sans-serif">📱 Open in Messages</a>`:""}
-      <button onclick="copyDraft()" style="padding:7px 13px;border-radius:10px;border:1.5px solid #E0E0E0;background:#fff;font-weight:700;font-size:12px;cursor:pointer;color:#555" id="copy-btn">📋 Copy</button>
-      <button onclick="clearDraft()" style="padding:7px 13px;border-radius:10px;border:1.5px solid #E0E0E0;background:#fff;font-weight:600;font-size:12px;cursor:pointer;color:#9B9B9B">↺ Different</button>
-    </div>`;
+  // draft
+  var draft='<div><div style="font-size:10px;font-weight:800;color:#9B9B9B;text-transform:uppercase;letter-spacing:1.5px;margin-bottom:8px">Draft a Text</div>';
+  if(S.draftLoading){
+    draft+='<div style="display:flex;align-items:center;gap:10px;padding:12px;background:#F9FAFB;border-radius:12px;font-size:13px;color:#9B9B9B;font-style:italic"><div style="width:14px;height:14px;border:2px solid #E0E0E0;border-top-color:#FF6B35;border-radius:50%;animation:spin 0.7s linear infinite"></div>Thinking…</div>';
+  } else if(S.draftText){
+    var sms=c.phone?"sms:+"+c.phone.replace(/\D/g,"")+"?body="+encodeURIComponent(S.draftText):"";
+    draft+='<div style="background:#F0FFF4;border:1.5px solid #C8E6C9;border-radius:12px;padding:12px;font-size:13px;color:#1B5E20;line-height:1.7;font-style:italic">'+S.draftText.replace(/</g,"&lt;")+'</div><div style="display:flex;gap:8px;margin-top:8px;flex-wrap:wrap">'+(sms?'<a href="'+sms+'" style="display:flex;align-items:center;gap:5px;padding:7px 12px;border-radius:10px;background:#34C759;color:#fff;font-weight:800;font-size:12px;text-decoration:none">📱 Messages</a>':"")+'<button onclick="window._cp()" id="cpbtn" style="padding:7px 12px;border-radius:10px;border:1.5px solid #E0E0E0;background:#fff;font-size:12px;cursor:pointer">📋 Copy</button><button onclick="window._cd()" style="padding:7px 12px;border-radius:10px;border:1.5px solid #E0E0E0;background:#fff;font-size:12px;cursor:pointer;color:#9B9B9B">↺ New</button></div>';
   } else {
-    draftSection+=`<div style="display:flex;gap:7px;flex-wrap:wrap">
-      <button onclick="generateDraft('catchup')" style="padding:8px 13px;border-radius:10px;border:none;background:#FF6B35;color:#fff;font-weight:800;font-size:12px;cursor:pointer;font-family:'Nunito',sans-serif">💬 Checking in</button>
-      <button onclick="generateDraft('hangout')" style="padding:8px 13px;border-radius:10px;border:none;background:#3498DB;color:#fff;font-weight:800;font-size:12px;cursor:pointer;font-family:'Nunito',sans-serif">🍻 Hangout</button>
-      ${isBday?`<button onclick="generateDraft('birthday')" style="padding:8px 13px;border-radius:10px;border:none;background:#F39C12;color:#fff;font-weight:800;font-size:12px;cursor:pointer;font-family:'Nunito',sans-serif">🎂 Birthday</button>`:""}
-      <button onclick="generateDraft('bbq')" style="padding:8px 13px;border-radius:10px;border:none;background:#2ECC71;color:#fff;font-weight:800;font-size:12px;cursor:pointer;font-family:'Nunito',sans-serif">🔥 BBQ invite</button>
-    </div>`;
+    draft+='<div style="display:flex;gap:7px;flex-wrap:wrap"><button onclick="window._gd(\'catchup\')" style="padding:8px 12px;border-radius:10px;border:none;background:#FF6B35;color:#fff;font-weight:800;font-size:12px;cursor:pointer">💬 Check in</button><button onclick="window._gd(\'hangout\')" style="padding:8px 12px;border-radius:10px;border:none;background:#3498DB;color:#fff;font-weight:800;font-size:12px;cursor:pointer">🍻 Hangout</button>'+(isBday?'<button onclick="window._gd(\'birthday\')" style="padding:8px 12px;border-radius:10px;border:none;background:#F39C12;color:#fff;font-weight:800;font-size:12px;cursor:pointer">🎂 Birthday</button>':"")+'<button onclick="window._gd(\'bbq\')" style="padding:8px 12px;border-radius:10px;border:none;background:#2ECC71;color:#fff;font-weight:800;font-size:12px;cursor:pointer">🔥 BBQ</button></div>';
   }
-  draftSection+="</div>";
+  draft+='</div>';
 
-  // Notes section
-  let notesSection=`<div>
-    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
-      <div style="font-size:10px;font-weight:800;color:#9B9B9B;text-transform:uppercase;letter-spacing:1.5px;font-family:'Nunito',sans-serif">Notes after talking</div>
-      ${!STATE.noteAdding?`<button onclick="STATE.noteAdding=true;render()" style="padding:4px 10px;border-radius:8px;border:1.5px solid #E0E0E0;background:#fff;font-size:12px;font-weight:700;cursor:pointer;color:#FF6B35;font-family:'Nunito',sans-serif">+ Add note</button>`:""}
-    </div>
-    ${STATE.noteAdding?`<div style="background:#FFFBF8;border:1.5px solid #FFD4C2;border-radius:12px;padding:14px;margin-bottom:12px">
-      <textarea id="note-input" placeholder="What did you talk about? Anything to remember for next time..." style="width:100%;border:none;background:transparent;resize:none;font-size:13px;color:#2C2C2C;font-family:'Nunito Sans',sans-serif;outline:none;min-height:72px;line-height:1.6;box-sizing:border-box"></textarea>
-      <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:8px;border-top:1px solid #F0E8DF;padding-top:10px">
-        <button onclick="STATE.noteAdding=false;render()" style="padding:6px 14px;border-radius:8px;border:1.5px solid #E0E0E0;background:#fff;font-size:12px;font-weight:600;cursor:pointer;color:#9B9B9B">Cancel</button>
-        <button onclick="saveNote()" style="padding:6px 14px;border-radius:8px;border:none;background:#FF6B35;font-size:12px;font-weight:800;cursor:pointer;color:#fff;font-family:'Nunito',sans-serif">Save Note</button>
-      </div>
-    </div>`:""}
-    ${notes.length===0&&!STATE.noteAdding?`<div style="text-align:center;padding:16px 12px;background:#FAFAFA;border-radius:12px;border:1.5px dashed #E8E0D8"><div style="font-size:20px;margin-bottom:5px">📝</div><div style="font-size:12px;color:#9B9B9B;line-height:1.5">No notes yet. After you catch up,<br>jot down what you talked about.</div></div>`:""}
-    ${notes.map(n=>`<div style="background:#FAFAFA;border-radius:12px;padding:12px 14px;margin-bottom:8px;border:1px solid #F0E8DF">
-      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:5px">
-        <span style="font-size:11px;font-weight:700;color:#C4B5A8;font-family:'Nunito',sans-serif">${fmtDate(n.date)}</span>
-        <button onclick="deleteNote('${c.id}','${n.id}')" onmouseenter="this.style.color='#E74C3C'" onmouseleave="this.style.color='#D0C8C0'" style="background:none;border:none;cursor:pointer;font-size:13px;color:#D0C8C0;padding:0 2px">✕</button>
-      </div>
-      <div style="font-size:13px;color:#444;line-height:1.65;white-space:pre-wrap">${n.text.replace(/</g,"&lt;")}</div>
-    </div>`).join("")}
-  </div>`;
+  // notes
+  var ns='<div><div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px"><div style="font-size:10px;font-weight:800;color:#9B9B9B;text-transform:uppercase;letter-spacing:1.5px">Notes</div>'+(S.noteAdding?"":"<button onclick=\"S.noteAdding=true;render()\" style=\"padding:3px 10px;border-radius:8px;border:1.5px solid #E0E0E0;background:#fff;font-size:12px;cursor:pointer;color:#FF6B35;font-weight:700\">+ Add</button>")+'</div>';
+  if(S.noteAdding){
+    ns+='<div style="background:#FFFBF8;border:1.5px solid #FFD4C2;border-radius:12px;padding:12px;margin-bottom:10px"><textarea id="ni" placeholder="What did you talk about?" style="width:100%;border:none;background:transparent;resize:none;font-size:13px;color:#2C2C2C;outline:none;min-height:70px;line-height:1.6;font-family:Nunito Sans,sans-serif;box-sizing:border-box"></textarea><div style="display:flex;gap:8px;justify-content:flex-end;margin-top:6px;border-top:1px solid #F0E8DF;padding-top:8px"><button onclick="S.noteAdding=false;render()" style="padding:5px 12px;border-radius:8px;border:1.5px solid #E0E0E0;background:#fff;font-size:12px;cursor:pointer;color:#9B9B9B">Cancel</button><button onclick="window._sn()" style="padding:5px 12px;border-radius:8px;border:none;background:#FF6B35;font-size:12px;cursor:pointer;color:#fff;font-weight:800">Save</button></div></div>';
+  }
+  if(!notes.length&&!S.noteAdding){ns+='<div style="text-align:center;padding:14px;background:#FAFAFA;border-radius:12px;border:1.5px dashed #E8E0D8"><div style="font-size:18px;margin-bottom:4px">📝</div><div style="font-size:12px;color:#9B9B9B">No notes yet</div></div>';}
+  notes.forEach(function(n){ns+='<div style="background:#FAFAFA;border-radius:10px;padding:10px 12px;margin-bottom:7px;border:1px solid #F0E8DF"><div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px"><span style="font-size:11px;font-weight:700;color:#C4B5A8">'+fmtD(n.date)+'</span><button onclick="window._dn(\''+c.id+'\',\''+n.id+'\')" style="background:none;border:none;cursor:pointer;font-size:12px;color:#D0C8C0" onmouseenter="this.style.color=\'#E74C3C\'" onmouseleave="this.style.color=\'#D0C8C0\'">✕</button></div><div style="font-size:13px;color:#444;line-height:1.6;white-space:pre-wrap">'+n.text.replace(/</g,"&lt;")+'</div></div>';});
+  ns+='</div>';
 
-  // Gifts section
-  const grouped=gifts.reduce((acc,g)=>{acc[g.occasion]=acc[g.occasion]||[];acc[g.occasion].push(g);return acc;},{});
-  let giftsSection=`<div>
-    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
-      <div style="font-size:10px;font-weight:800;color:#9B9B9B;text-transform:uppercase;letter-spacing:1.5px;font-family:'Nunito',sans-serif">Gift Ideas 🎁</div>
-      ${!STATE.giftAdding?`<button onclick="STATE.giftAdding=true;render()" style="padding:4px 10px;border-radius:8px;border:1.5px solid #E0E0E0;background:#fff;font-size:12px;font-weight:700;cursor:pointer;color:#FF6B35;font-family:'Nunito',sans-serif">+ Add idea</button>`:""}
-    </div>
-    ${STATE.giftAdding?`<div style="background:#FFF8F5;border:1.5px solid #FFD4C2;border-radius:12px;padding:14px;margin-bottom:12px">
-      <div style="font-size:11px;font-weight:700;color:#9B9B9B;margin-bottom:6px;font-family:'Nunito',sans-serif">OCCASION</div>
-      <div style="display:flex;flex-wrap:wrap;gap:5px;margin-bottom:10px">
-        ${OCCASIONS.map(o=>`<button onclick="STATE.addOccasion='${o}';render()" style="padding:3px 9px;border-radius:20px;border:1.5px solid ${STATE.addOccasion===o?"#FF6B35":"#E0E0E0"};background:${STATE.addOccasion===o?"#FF6B35":"#fff"};color:${STATE.addOccasion===o?"#fff":"#9B9B9B"};font-size:11px;font-weight:700;cursor:pointer;font-family:'Nunito',sans-serif">${o}</button>`).join("")}
-      </div>
-      <input id="gift-input" placeholder="e.g. BBQ tool set, nice whiskey, Traeger cookbook..." style="width:100%;border:1.5px solid #E8E0D8;border-radius:9px;padding:8px 12px;font-size:13px;color:#2C2C2C;outline:none;font-family:'Nunito Sans',sans-serif;box-sizing:border-box;background:#fff;margin-bottom:10px">
-      <div style="display:flex;gap:8px;justify-content:space-between;align-items:center">
-        <button onclick="generateGiftIdeas()" ${STATE.giftGenerating?"disabled":""} style="padding:6px 12px;border-radius:8px;border:none;background:${STATE.giftGenerating?"#ccc":"#9B59B6"};color:#fff;font-size:12px;font-weight:800;cursor:pointer;font-family:'Nunito',sans-serif;display:flex;align-items:center;gap:6px">
-          ${STATE.giftGenerating?`<div style="width:12px;height:12px;border:2px solid rgba(255,255,255,0.4);border-top-color:#fff;border-radius:50%;animation:spin 0.7s linear infinite"></div>Thinking…`:"✨ AI suggestions"}
-        </button>
-        <div style="display:flex;gap:8px">
-          <button onclick="STATE.giftAdding=false;render()" style="padding:6px 12px;border-radius:8px;border:1.5px solid #E0E0E0;background:#fff;font-size:12px;font-weight:600;cursor:pointer;color:#9B9B9B">Cancel</button>
-          <button onclick="saveGift()" style="padding:6px 12px;border-radius:8px;border:none;background:#FF6B35;font-size:12px;font-weight:800;cursor:pointer;color:#fff;font-family:'Nunito',sans-serif">Save</button>
-        </div>
-      </div>
-    </div>`:""}
-    ${gifts.length===0&&!STATE.giftAdding?`<div style="text-align:center;padding:16px 12px;background:#FAFAFA;border-radius:12px;border:1.5px dashed #E8E0D8"><div style="font-size:20px;margin-bottom:5px">🎁</div><div style="font-size:12px;color:#9B9B9B;line-height:1.5">No gift ideas yet. Add one or let AI suggest.</div></div>`:""}
-    ${Object.entries(grouped).map(([occ,items])=>`<div style="margin-bottom:12px">
-      <div style="font-size:11px;font-weight:800;color:#C4B5A8;margin-bottom:6px;font-family:'Nunito',sans-serif">${occ}</div>
-      ${items.map(g=>`<div style="display:flex;align-items:center;gap:10px;padding:8px 12px;border-radius:10px;background:${g.bought?"#F0FFF4":"#FAFAFA"};border:1px solid ${g.bought?"#C8E6C9":"#F0E8DF"};margin-bottom:5px">
-        <input type="checkbox" ${g.bought?"checked":""} onchange="toggleGift('${c.id}','${g.id}')" style="width:15px;height:15px;cursor:pointer;accent-color:#2ECC71;flex-shrink:0">
-        <span style="flex:1;font-size:13px;color:${g.bought?"#9B9B9B":"#2C2C2C"};text-decoration:${g.bought?"line-through":"none"}">${g.text.replace(/</g,"&lt;")}</span>
-        <button onclick="deleteGift('${c.id}','${g.id}')" onmouseenter="this.style.color='#E74C3C'" onmouseleave="this.style.color='#D0C8C0'" style="background:none;border:none;cursor:pointer;font-size:12px;color:#D0C8C0;padding:0 2px;flex-shrink:0">✕</button>
-      </div>`).join("")}
-    </div>`).join("")}
-  </div>`;
+  // gifts
+  var grouped={};gifts.forEach(function(g){grouped[g.occasion]=grouped[g.occasion]||[];grouped[g.occasion].push(g);});
+  var gs='<div><div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px"><div style="font-size:10px;font-weight:800;color:#9B9B9B;text-transform:uppercase;letter-spacing:1.5px">Gift Ideas 🎁</div>'+(S.giftAdding?"":"<button onclick=\"S.giftAdding=true;render()\" style=\"padding:3px 10px;border-radius:8px;border:1.5px solid #E0E0E0;background:#fff;font-size:12px;cursor:pointer;color:#FF6B35;font-weight:700\">+ Add</button>")+'</div>';
+  if(S.giftAdding){
+    gs+='<div style="background:#FFF8F5;border:1.5px solid #FFD4C2;border-radius:12px;padding:12px;margin-bottom:10px"><div style="font-size:11px;font-weight:700;color:#9B9B9B;margin-bottom:6px">OCCASION</div><div style="display:flex;flex-wrap:wrap;gap:5px;margin-bottom:10px">';
+    OCCASIONS.forEach(function(o){gs+='<button onclick="S.addOccasion=\''+o+'\';render()" style="padding:3px 8px;border-radius:20px;border:1.5px solid '+(S.addOccasion===o?"#FF6B35":"#E0E0E0")+';background:'+(S.addOccasion===o?"#FF6B35":"#fff")+';color:'+(S.addOccasion===o?"#fff":"#9B9B9B")+';font-size:11px;font-weight:700;cursor:pointer">'+o+'</button>';});
+    gs+='</div><input id="gi" placeholder="e.g. Traeger cookbook, nice whiskey…" style="width:100%;border:1.5px solid #E8E0D8;border-radius:8px;padding:8px 10px;font-size:13px;outline:none;margin-bottom:8px;box-sizing:border-box"><div style="display:flex;gap:8px;justify-content:space-between;align-items:center"><button onclick="window._gg()" style="padding:6px 12px;border-radius:8px;border:none;background:'+(S.giftGenerating?"#ccc":"#9B59B6")+';color:#fff;font-size:12px;font-weight:800;cursor:pointer;display:flex;align-items:center;gap:5px">'+(S.giftGenerating?'<div style="width:11px;height:11px;border:2px solid rgba(255,255,255,0.4);border-top-color:#fff;border-radius:50%;animation:spin 0.7s linear infinite"></div>Thinking…':"✨ AI ideas")+'</button><div style="display:flex;gap:8px"><button onclick="S.giftAdding=false;render()" style="padding:6px 12px;border-radius:8px;border:1.5px solid #E0E0E0;background:#fff;font-size:12px;cursor:pointer;color:#9B9B9B">Cancel</button><button onclick="window._sg()" style="padding:6px 12px;border-radius:8px;border:none;background:#FF6B35;font-size:12px;cursor:pointer;color:#fff;font-weight:800">Save</button></div></div></div>';
+  }
+  if(!gifts.length&&!S.giftAdding){gs+='<div style="text-align:center;padding:14px;background:#FAFAFA;border-radius:12px;border:1.5px dashed #E8E0D8"><div style="font-size:18px;margin-bottom:4px">🎁</div><div style="font-size:12px;color:#9B9B9B">No gift ideas yet</div></div>';}
+  Object.keys(grouped).forEach(function(occ){
+    gs+='<div style="margin-bottom:10px"><div style="font-size:11px;font-weight:800;color:#C4B5A8;margin-bottom:5px">'+occ+'</div>';
+    grouped[occ].forEach(function(g){
+      gs+='<div style="display:flex;align-items:center;gap:8px;padding:7px 10px;border-radius:8px;background:'+(g.bought?"#F0FFF4":"#FAFAFA")+';border:1px solid '+(g.bought?"#C8E6C9":"#F0E8DF")+';margin-bottom:4px"><input type="checkbox" '+(g.bought?"checked":"")+" onchange=\"window._tg('"+c.id+"','"+g.id+"')\" style=\"width:15px;height:15px;cursor:pointer;accent-color:#2ECC71;flex-shrink:0\"><span style=\"flex:1;font-size:13px;color:"+(g.bought?"#9B9B9B":"#2C2C2C")+";text-decoration:"+(g.bought?"line-through":"none")+"\">"+g.text.replace(/</g,"&lt;")+"</span><button onclick=\"window._dg('"+c.id+"','"+g.id+"')\" style=\"background:none;border:none;cursor:pointer;font-size:12px;color:#D0C8C0\" onmouseenter=\"this.style.color='#E74C3C'\" onmouseleave=\"this.style.color='#D0C8C0'\">✕</button></div>";
+    });
+    gs+='</div>';
+  });
+  gs+='</div>';
 
-  return `<div onclick="if(event.target===this)closeDetail()" style="position:fixed;inset:0;background:rgba(0,0,0,0.4);z-index:200;display:flex;align-items:center;justify-content:flex-end">
-    <div style="width:420px;height:100%;background:#fff;overflow-y:auto;padding:28px;display:flex;flex-direction:column;gap:20px;font-family:'Nunito Sans',sans-serif;animation:slideIn 0.2s ease">
-      <div style="display:flex;align-items:flex-start;gap:14px">
-        <div style="width:60px;height:60px;border-radius:50%;background:${c.color}22;color:${c.color};display:flex;align-items:center;justify-content:center;font-size:20px;font-weight:900;font-family:'Nunito',sans-serif;flex-shrink:0">${initials(c)}</div>
-        <div style="flex:1">
-          <div style="font-size:22px;font-weight:900;color:#2C2C2C;font-family:'Nunito',sans-serif;letter-spacing:-0.5px">${c.fname} ${c.lname}</div>
-          <div style="display:flex;gap:5px;flex-wrap:wrap;margin-top:6px">${(c.tags||[]).map(tagPill).join("")}</div>
-        </div>
-        <button onclick="closeDetail()" style="background:#F5F5F5;border:none;border-radius:50%;width:30px;height:30px;cursor:pointer;font-size:14px;flex-shrink:0">✕</button>
-      </div>
-      ${isBday?`<div style="background:#FFF8E1;border:1.5px solid #FFE082;border-radius:12px;padding:12px 14px;font-weight:700;font-size:13px;color:#F57F17;font-family:'Nunito',sans-serif">🎂 ${bdu===0?"It's their birthday TODAY! 🎉":`Birthday in ${bdu} day${bdu===1?"":"s"}!`} — ${fmtBday(c.birthday)}</div>`:""}
-      <div>
-        <div style="font-size:10px;font-weight:800;color:#9B9B9B;text-transform:uppercase;letter-spacing:1.5px;margin-bottom:8px;font-family:'Nunito',sans-serif">Info</div>
-        ${[["📞",c.phone?`+${c.phone.replace(/\D/g,"")}`:"No phone saved"],["📝",c.note||"No note"],["⏱️",`Last contact: ${d===999?"Never":d+"d ago"}`],["🔔",`Nudge every ${c.nudgeDays} days`],c.birthday?["🎂",fmtBday(c.birthday)]:null].filter(Boolean).map(([icon,val])=>`<div style="display:flex;align-items:flex-start;gap:10px;padding:8px 0;border-bottom:1px solid #F0E8DF;font-size:13px;color:#555"><span style="font-size:15px;width:24px;text-align:center">${icon}</span><span>${val}</span></div>`).join("")}
-      </div>
-      <div style="background:${u.bg};border-radius:12px;padding:10px 14px;font-size:13px;font-weight:700;color:${u.col};font-family:'Nunito',sans-serif">${u.label}</div>
-      ${draftSection}
-      ${notesSection}
-      ${giftsSection}
-      <div style="display:flex;gap:10px;padding-top:10px;margin-top:auto">
-        <button onclick="markContacted('${c.id}')" style="flex:2;padding:11px;border-radius:12px;border:none;background:#FF6B35;color:#fff;font-weight:800;font-size:14px;cursor:pointer;font-family:'Nunito',sans-serif;box-shadow:0 4px 14px #FF6B3544">✅ Mark as Contacted</button>
-        <button onclick="editNudge('${c.id}')" style="flex:1;padding:11px;border-radius:12px;border:1.5px solid #E0E0E0;background:#fff;font-weight:700;font-size:13px;cursor:pointer;font-family:'Nunito',sans-serif;color:#9B9B9B">⚙️ Nudge</button>
-      </div>
-    </div>
-  </div>`;
+  return '<div onclick="if(event.target===this)window._cl()" style="position:fixed;inset:0;background:rgba(0,0,0,0.45);z-index:200;display:flex;align-items:center;justify-content:flex-end"><div style="width:min(420px,100vw);height:100%;background:#fff;overflow-y:auto;padding:22px;display:flex;flex-direction:column;gap:16px;font-family:Nunito Sans,sans-serif;animation:slideIn 0.2s ease">'
+    +'<div style="display:flex;align-items:flex-start;gap:12px"><div style="width:54px;height:54px;border-radius:50%;background:'+c.color+'22;color:'+c.color+';display:flex;align-items:center;justify-content:center;font-size:18px;font-weight:900;flex-shrink:0">'+ini(c)+'</div><div style="flex:1"><div style="font-size:20px;font-weight:900;color:#2C2C2C;font-family:Nunito,sans-serif">'+c.fname+' '+c.lname+'</div><div style="display:flex;gap:4px;flex-wrap:wrap;margin-top:5px">'+(c.tags||[]).map(tagPill).join("")+'</div></div><button onclick="window._cl()" style="background:#F5F5F5;border:none;border-radius:50%;width:28px;height:28px;cursor:pointer;font-size:13px;flex-shrink:0">✕</button></div>'
+    +(isBday?'<div style="background:#FFF8E1;border:1.5px solid #FFE082;border-radius:10px;padding:10px 12px;font-weight:700;font-size:13px;color:#F57F17">🎂 '+(bd===0?"It\'s their birthday TODAY! 🎉":"Birthday in "+bd+(bd===1?" day":"days")+"!")+" — "+fmtB(c.birthday)+"</div>":"")
+    +'<div>'+(c.phone?'<div style="display:flex;align-items:center;gap:8px;padding:7px 0;border-bottom:1px solid #F0E8DF;font-size:13px;color:#555"><span>📞</span>+'+c.phone.replace(/\D/g,"")+'</div>':"")+'<div style="display:flex;align-items:flex-start;gap:8px;padding:7px 0;border-bottom:1px solid #F0E8DF;font-size:13px;color:#555"><span>📝</span><span>'+(c.note||"No note")+'</span></div><div style="display:flex;gap:8px;padding:7px 0;border-bottom:1px solid #F0E8DF;font-size:13px;color:#555"><span>⏱️</span>Last contact: <b>'+(d===999?"Never":d+"d ago")+'</b></div><div style="display:flex;gap:8px;padding:7px 0;font-size:13px;color:#555"><span>🔔</span>Nudge every '+c.nudgeDays+' days</div></div>'
+    +'<div style="background:'+u.bg+';border-radius:10px;padding:9px 12px;font-size:13px;font-weight:700;color:'+u.col+'">'+u.label+'</div>'
+    +draft+ns+gs
+    +'<div style="display:flex;gap:10px;padding-top:8px"><button onclick="window._mc(\''+c.id+'\')" style="flex:2;padding:11px;border-radius:12px;border:none;background:#FF6B35;color:#fff;font-weight:800;font-size:14px;cursor:pointer;font-family:Nunito,sans-serif">✅ Mark Contacted</button><button onclick="window._en(\''+c.id+'\')" style="flex:1;padding:11px;border-radius:12px;border:1.5px solid #E0E0E0;background:#fff;font-weight:700;font-size:13px;cursor:pointer;color:#9B9B9B">⚙️ Nudge</button></div>'
+    +'</div></div>';
 }
 
-function addModal(){
-  if(!STATE.showAdd) return"";
-  const inp="width:100%;border:1.5px solid #E8E0D8;border-radius:10px;padding:9px 13px;font-size:14px;color:#2C2C2C;outline:none;font-family:'Nunito Sans',sans-serif;box-sizing:border-box;background:#FAFAFA";
-  return`<div style="position:fixed;inset:0;background:rgba(0,0,0,0.45);z-index:300;display:flex;align-items:center;justify-content:center">
-    <div style="background:#fff;border-radius:20px;padding:28px;width:480px;max-width:95vw;max-height:90vh;overflow-y:auto;font-family:'Nunito Sans',sans-serif">
-      <div style="font-size:20px;font-weight:900;margin-bottom:20px;font-family:'Nunito',sans-serif">Add to Inner Circle ✨</div>
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px">
-        <div><label style="font-size:11px;font-weight:700;color:#9B9B9B;text-transform:uppercase;letter-spacing:0.8px;display:block;margin-bottom:5px">First Name</label><input id="ac-fname" style="${inp}" placeholder="Mike"></div>
-        <div><label style="font-size:11px;font-weight:700;color:#9B9B9B;text-transform:uppercase;letter-spacing:0.8px;display:block;margin-bottom:5px">Last Name</label><input id="ac-lname" style="${inp}" placeholder="Johnson"></div>
-      </div>
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px">
-        <div><label style="font-size:11px;font-weight:700;color:#9B9B9B;text-transform:uppercase;letter-spacing:0.8px;display:block;margin-bottom:5px">Phone</label><input id="ac-phone" style="${inp}" placeholder="+1 555-000-0000"></div>
-        <div><label style="font-size:11px;font-weight:700;color:#9B9B9B;text-transform:uppercase;letter-spacing:0.8px;display:block;margin-bottom:5px">Birthday</label><input id="ac-bday" type="date" style="${inp}"></div>
-      </div>
-      <div style="margin-bottom:12px"><label style="font-size:11px;font-weight:700;color:#9B9B9B;text-transform:uppercase;letter-spacing:0.8px;display:block;margin-bottom:5px">How do you know them?</label><input id="ac-note" style="${inp}" placeholder="Met at Tim's BBQ, kids play soccer together..."></div>
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px">
-        <div><label style="font-size:11px;font-weight:700;color:#9B9B9B;text-transform:uppercase;letter-spacing:0.8px;display:block;margin-bottom:5px">Nudge me every (days)</label><input id="ac-nudge" type="number" value="30" style="${inp}"></div>
-        <div><label style="font-size:11px;font-weight:700;color:#9B9B9B;text-transform:uppercase;letter-spacing:0.8px;display:block;margin-bottom:5px">Color</label>
-          <div style="display:flex;gap:8px;margin-top:4px">${COLORS.map(col=>`<div onclick="STATE.addContactColor='${col}';render()" style="width:26px;height:26px;border-radius:50%;background:${col};cursor:pointer;border:${STATE.addContactColor===col?"3px solid #333":"3px solid transparent"};transition:all 0.15s"></div>`).join("")}</div>
-        </div>
-      </div>
-      <div style="margin-bottom:20px"><label style="font-size:11px;font-weight:700;color:#9B9B9B;text-transform:uppercase;letter-spacing:0.8px;display:block;margin-bottom:8px">Groups</label>
-        <div style="display:flex;gap:6px;flex-wrap:wrap">
-          ${["bbq","friends","kids","family","work"].map(t=>`<button onclick="toggleAddTag('${t}')" style="padding:5px 12px;border-radius:20px;border:1.5px solid ${STATE.addContactTags.includes(t)?"#FF6B35":"#E0E0E0"};background:${STATE.addContactTags.includes(t)?"#FF6B35":"#fff"};color:${STATE.addContactTags.includes(t)?"#fff":"#9B9B9B"};font-weight:700;font-size:12px;cursor:pointer;font-family:'Nunito',sans-serif">${TAG_META[t]?.label||t}</button>`).join("")}
-        </div>
-      </div>
-      <div style="display:flex;gap:10px">
-        <button onclick="STATE.showAdd=false;render()" style="flex:1;padding:11px;border-radius:12px;border:1.5px solid #E0E0E0;background:#fff;font-weight:700;cursor:pointer;font-family:'Nunito',sans-serif;color:#9B9B9B">Cancel</button>
-        <button onclick="saveNewContact()" style="flex:2;padding:11px;border-radius:12px;border:none;background:#FF6B35;color:#fff;font-weight:800;font-size:14px;cursor:pointer;font-family:'Nunito',sans-serif;box-shadow:0 4px 14px #FF6B3544">Add to Inner Circle 🔥</button>
-      </div>
-    </div>
-  </div>`;
+function addModalHTML(){
+  if(!S.showAdd)return "";
+  var inp="width:100%;border:1.5px solid #E8E0D8;border-radius:10px;padding:9px 12px;font-size:14px;color:#2C2C2C;outline:none;font-family:Nunito Sans,sans-serif;box-sizing:border-box;background:#FAFAFA";
+  return '<div style="position:fixed;inset:0;background:rgba(0,0,0,0.45);z-index:300;display:flex;align-items:center;justify-content:center;padding:16px">'
+    +'<div style="background:#fff;border-radius:18px;padding:22px;width:100%;max-width:460px;max-height:90vh;overflow-y:auto;font-family:Nunito Sans,sans-serif">'
+    +'<div style="font-size:18px;font-weight:900;margin-bottom:16px;font-family:Nunito,sans-serif">Add to Inner Circle ✨</div>'
+    +'<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px">'
+    +'<div><label style="font-size:11px;font-weight:700;color:#9B9B9B;text-transform:uppercase;display:block;margin-bottom:4px">First Name</label><input id="ac-fn" style="'+inp+'" placeholder="Mike"></div>'
+    +'<div><label style="font-size:11px;font-weight:700;color:#9B9B9B;text-transform:uppercase;display:block;margin-bottom:4px">Last Name</label><input id="ac-ln" style="'+inp+'" placeholder="Johnson"></div></div>'
+    +'<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px">'
+    +'<div><label style="font-size:11px;font-weight:700;color:#9B9B9B;text-transform:uppercase;display:block;margin-bottom:4px">Phone</label><input id="ac-ph" style="'+inp+'" placeholder="+1 555-0000"></div>'
+    +'<div><label style="font-size:11px;font-weight:700;color:#9B9B9B;text-transform:uppercase;display:block;margin-bottom:4px">Birthday</label><input id="ac-bd" type="date" style="'+inp+'"></div></div>'
+    +'<div style="margin-bottom:10px"><label style="font-size:11px;font-weight:700;color:#9B9B9B;text-transform:uppercase;display:block;margin-bottom:4px">How do you know them?</label><input id="ac-nt" style="'+inp+'" placeholder="Met at Tim\'s BBQ…"></div>'
+    +'<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px">'
+    +'<div><label style="font-size:11px;font-weight:700;color:#9B9B9B;text-transform:uppercase;display:block;margin-bottom:4px">Nudge every (days)</label><input id="ac-nd" type="number" value="30" style="'+inp+'"></div>'
+    +'<div><label style="font-size:11px;font-weight:700;color:#9B9B9B;text-transform:uppercase;display:block;margin-bottom:4px">Color</label><div style="display:flex;gap:7px;margin-top:4px">'
+    +COLORS.map(function(col){return '<div onclick="S.addColor=\''+col+'\';render()" style="width:24px;height:24px;border-radius:50%;background:'+col+';cursor:pointer;border:'+(S.addColor===col?"3px solid #333":"3px solid transparent")+'"></div>';}).join("")
+    +'</div></div></div>'
+    +'<div style="margin-bottom:16px"><label style="font-size:11px;font-weight:700;color:#9B9B9B;text-transform:uppercase;display:block;margin-bottom:7px">Groups</label><div style="display:flex;gap:6px;flex-wrap:wrap">'
+    +["bbq","friends","kids","family","work"].map(function(t){return '<button onclick="window._tt(\''+t+'\')" style="padding:5px 10px;border-radius:20px;border:1.5px solid '+(S.addTags.includes(t)?"#FF6B35":"#E0E0E0")+';background:'+(S.addTags.includes(t)?"#FF6B35":"#fff")+';color:'+(S.addTags.includes(t)?"#fff":"#9B9B9B")+';font-weight:700;font-size:12px;cursor:pointer">'+(TAG_META[t]?TAG_META[t].label:t)+'</button>';}).join("")
+    +'</div></div>'
+    +'<div style="display:flex;gap:10px"><button onclick="S.showAdd=false;render()" style="flex:1;padding:11px;border-radius:12px;border:1.5px solid #E0E0E0;background:#fff;font-weight:700;cursor:pointer;color:#9B9B9B">Cancel</button>'
+    +'<button onclick="window._sc()" style="flex:2;padding:11px;border-radius:12px;border:none;background:#FF6B35;color:#fff;font-weight:800;font-size:14px;cursor:pointer;font-family:Nunito,sans-serif">Add to Inner Circle 🔥</button></div>'
+    +'</div></div>';
 }
 
-// ── Render ─────────────────────────────────────────────────
+function sidebarHTML(){
+  var nl=nudgeList().length;
+  function ni(v,icon,label,badge){
+    var a=S.view===v&&S.group==="all";
+    return '<div onclick="window._sv(\''+v+'\')" style="display:flex;align-items:center;gap:10px;padding:9px 16px;cursor:pointer;font-size:13px;font-weight:600;color:'+(a?"#FF6B35":"#CDD6F4")+';background:'+(a?"rgba(255,107,53,0.12)":"transparent")+';border-left:3px solid '+(a?"#FF6B35":"transparent")+'"><span style="font-size:15px;width:20px;text-align:center">'+icon+'</span>'+label+(badge?'<span style="margin-left:auto;background:#FF6B35;color:#fff;font-size:10px;font-weight:800;padding:1px 6px;border-radius:20px">'+badge+'</span>':"")+'</div>';
+  }
+  return '<div style="width:210px;background:#1E1E2E;display:flex;flex-direction:column;flex-shrink:0;overflow-y:auto;height:100vh">'
+    +'<div style="padding:20px 18px 12px;font-family:Nunito,sans-serif;font-size:17px;font-weight:900;color:#fff;border-bottom:1px solid rgba(255,255,255,0.08);display:flex;align-items:center;gap:8px"><span style="font-size:22px">🔥</span>Inner Circle</div>'
+    +'<div style="padding:8px 12px 4px">'+syncBadge()+'</div>'
+    +'<div style="padding:10px 12px 4px;font-size:10px;font-weight:700;color:rgba(255,255,255,0.3);text-transform:uppercase;letter-spacing:1.5px">Menu</div>'
+    +ni("dashboard","🏠","Dashboard")
+    +ni("contacts","👥","Contacts")
+    +ni("birthdays","🎂","Birthdays")
+    +ni("nudges","💬","Nudges",nl||"")
+    +'<div style="padding:10px 12px 4px;font-size:10px;font-weight:700;color:rgba(255,255,255,0.3);text-transform:uppercase;letter-spacing:1.5px;margin-top:8px">Groups</div>'
+    +GROUPS.map(function(g){var a=S.view==="contacts"&&S.group===g.id;return '<div onclick="window._sg2(\''+g.id+'\')" style="display:flex;align-items:center;gap:10px;padding:9px 16px;cursor:pointer;font-size:13px;font-weight:600;color:'+(a?"#FF6B35":"#CDD6F4")+';background:'+(a?"rgba(255,107,53,0.12)":"transparent")+';border-left:3px solid '+(a?"#FF6B35":"transparent")+'"><span style="font-size:15px;width:20px;text-align:center">'+g.icon+'</span>'+g.label+'</div>';}).join("")
+    +'<div style="flex:1"></div>'
+    +'<div style="padding:12px 16px;border-top:1px solid rgba(255,255,255,0.06);font-size:11px;color:rgba(255,255,255,0.2);text-align:center">Inner Circle CRM</div>'
+    +'</div>';
+}
+
+// ── render ──────────────────────────────────────────────────
 function render(){
-  const root=document.getElementById("root");
+  var root=document.getElementById("root");
+  var nl=nudgeList().length;
+  var viewHTML="";
+  if(S.view==="dashboard")viewHTML=dashView();
+  else if(S.view==="contacts")viewHTML=contactsView();
+  else if(S.view==="birthdays")viewHTML=birthdaysView();
+  else if(S.view==="nudges")viewHTML=nudgesView();
 
-  // No auth needed — render app directly
+  var titles={dashboard:"Dashboard",contacts:S.group==="all"?"Contacts":GROUPS.find(function(g){return g.id===S.group;})||{label:"Contacts"},birthdays:"Birthdays 🎂",nudges:"Nudges 💬"};
+  var title=typeof titles[S.view]==="string"?titles[S.view]:(titles[S.view].label||"Contacts");
 
-  const titles={dashboard:"Dashboard 🏠",contacts:STATE.group==="all"?"All Contacts":GROUPS.find(g=>g.id===STATE.group)?.label||"Contacts",birthdays:"Birthdays 🎂",nudges:"Who to Text 💬"};
-  let viewHTML="";
-  if(STATE.view==="dashboard") viewHTML=dashboardView();
-  else if(STATE.view==="contacts") viewHTML=contactsView();
-  else if(STATE.view==="birthdays") viewHTML=birthdaysView();
-  else if(STATE.view==="nudges") viewHTML=nudgesView();
+  var isMobile=window.innerWidth<768;
 
-  root.innerHTML=`<div style="display:flex;height:100vh;overflow:hidden">
-    ${sidebar()}
-    <div style="flex:1;display:flex;flex-direction:column;overflow:hidden">
-      <div style="padding:16px 24px;background:#fff;border-bottom:1px solid #F0E8DF;display:flex;align-items:center;justify-content:space-between;flex-shrink:0">
-        <div style="font-size:20px;font-weight:900;font-family:'Nunito',sans-serif">${titles[STATE.view]||"Contacts"}</div>
-        <button onclick="openAdd()" style="padding:8px 16px;border-radius:10px;border:none;background:#FF6B35;color:#fff;font-weight:800;font-size:13px;cursor:pointer;font-family:'Nunito',sans-serif;box-shadow:0 4px 12px #FF6B3544">+ Add Contact</button>
-      </div>
-      <div style="flex:1;overflow-y:auto;padding:24px">${viewHTML}</div>
-    </div>
-    ${STATE.detail?detailPanel():""}
-    ${addModal()}
-  </div>`;
+  if(isMobile){
+    root.innerHTML='<div style="display:flex;flex-direction:column;height:100vh;height:100dvh;overflow:hidden;background:#FFF8F0">'
+      +'<div style="padding:12px 16px;background:#1E1E2E;display:flex;align-items:center;justify-content:space-between;flex-shrink:0">'
+      +'<div style="font-family:Nunito,sans-serif;font-size:16px;font-weight:900;color:#fff;display:flex;align-items:center;gap:8px"><span>🔥</span>'+title+'</div>'
+      +'<div style="display:flex;align-items:center;gap:8px">'+syncBadge()+'<button onclick="window._oa()" style="padding:7px 14px;border-radius:10px;border:none;background:#FF6B35;color:#fff;font-weight:800;font-size:13px;cursor:pointer;font-family:Nunito,sans-serif">+ Add</button></div>'
+      +'</div>'
+      +'<div style="flex:1;overflow-y:auto;padding:14px">'+viewHTML+'</div>'
+      +'<div style="display:flex;background:#1E1E2E;border-top:1px solid rgba(255,255,255,0.1);flex-shrink:0;padding-bottom:env(safe-area-inset-bottom)">'
+      +[["dashboard","🏠","Home"],["contacts","👥","People"],["birthdays","🎂","Bdays"],["nudges","💬","Nudges"]].map(function(x){
+        var v=x[0],icon=x[1],label=x[2];
+        var active=S.view===v;
+        return '<div onclick="window._sv(\''+v+'\')" style="flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:10px 4px 8px;cursor:pointer;position:relative;color:'+(active?"#FF6B35":"rgba(255,255,255,0.4)")+'"><span style="font-size:22px">'+icon+'</span><span style="font-size:10px;font-weight:700;margin-top:3px;font-family:Nunito,sans-serif">'+label+'</span>'+(v==="nudges"&&nl>0?'<span style="position:absolute;top:6px;right:calc(50% - 20px);background:#FF6B35;color:#fff;font-size:9px;font-weight:800;padding:1px 5px;border-radius:20px">'+nl+'</span>':"")+'</div>';
+      }).join("")
+      +'</div>'
+      +(S.detail?detailHTML():"")
+      +addModalHTML()
+      +'</div>';
+  } else {
+    root.innerHTML='<div style="display:flex;height:100vh;overflow:hidden">'
+      +sidebarHTML()
+      +'<div style="flex:1;display:flex;flex-direction:column;overflow:hidden">'
+      +'<div style="padding:16px 24px;background:#fff;border-bottom:1px solid #F0E8DF;display:flex;align-items:center;justify-content:space-between;flex-shrink:0">'
+      +'<div style="font-size:20px;font-weight:900;font-family:Nunito,sans-serif">'+title+'</div>'
+      +'<button onclick="window._oa()" style="padding:8px 16px;border-radius:10px;border:none;background:#FF6B35;color:#fff;font-weight:800;font-size:13px;cursor:pointer;font-family:Nunito,sans-serif">+ Add Contact</button>'
+      +'</div>'
+      +'<div style="flex:1;overflow-y:auto;padding:24px">'+viewHTML+'</div>'
+      +'</div>'
+      +(S.detail?detailHTML():"")
+      +addModalHTML()
+      +'</div>';
+  }
 }
 
-// ── Global functions (called from HTML onclick) ───────────
-window.setView=(v)=>{STATE.view=v;STATE.group="all";render();};
-window.setGroup=(g)=>{STATE.group=g;STATE.view="contacts";render();};
-window.openDetail=(id)=>{STATE.detail=STATE.contacts.find(c=>c.id===id)||null;STATE.draftText=null;STATE.draftLoading=false;STATE.noteAdding=false;STATE.giftAdding=false;render();};
-window.closeDetail=()=>{STATE.detail=null;render();};
-window.openAdd=()=>{STATE.showAdd=true;STATE.addContactColor=COLORS[0];STATE.addContactTags=[];render();};
-window.markContacted=markContacted;
-window.editNudge=async(id)=>{const c=STATE.contacts.find(x=>x.id===id);const val=prompt(`Nudge me every __ days for ${c.fname}:`,c.nudgeDays);if(val&&!isNaN(val))await fbUpdate(id,{nudgeDays:parseInt(val)});};
-window.generateDraft=generateDraft;
-window.clearDraft=()=>{STATE.draftText=null;render();};
-window.copyDraft=()=>{if(STATE.draftText){navigator.clipboard.writeText(STATE.draftText);const btn=document.getElementById("copy-btn");if(btn){btn.textContent="✅ Copied!";setTimeout(()=>{if(btn)btn.textContent="📋 Copy";},2000);}}};
-window.saveNote=()=>{const t=document.getElementById("note-input")?.value?.trim();if(t&&STATE.detail)addNote(STATE.detail.id,t);};
-window.deleteNote=deleteNote;
-window.saveGift=()=>{const t=document.getElementById("gift-input")?.value?.trim();if(t&&STATE.detail)addGift(STATE.detail.id,{id:uid(),text:t,occasion:STATE.addOccasion,bought:false,date:today()}).then(()=>{STATE.giftAdding=false;render();});};
-window.generateGiftIdeas=generateGiftIdeas;
-window.deleteGift=deleteGift;
-window.toggleGift=toggleGift;
-window.toggleAddTag=(t)=>{STATE.addContactTags=STATE.addContactTags.includes(t)?STATE.addContactTags.filter(x=>x!==t):[...STATE.addContactTags,t];render();};
-window.saveNewContact=saveNewContact;
-window.STATE=STATE;
-
-render();
+// ── globals ──────────────────────────────────────────────────
+window._sv=function(v){S.view=v;S.group="all";render();};
+window._sg2=function(g){S.group=g;S.view="contacts";render();};
+window._od=function(id){S.detail=S.contacts.find(function(c){return c.id===id;})||null;S.draftText=null;S.draftLoading=false;S.noteAdding=false;S.giftAdding=false;render();};
+window._cl=function(){S.detail=null;render();};
+window._oa=function(){S.showAdd=true;S.addColor=COLORS[0];S.addTags=[];render();};
+window._mc=function(id){markContacted(id);};
+window._en=function(id){var c=S.contacts.find(function(x){return x.id===id;});var v=prompt("Nudge every __ days for "+c.fname+":",c.nudgeDays);if(v&&!isNaN(v))fbUp(id,{nudgeDays:parseInt(v)});};
+window._gd=function(t){genDraft(t);};
+window._cd=function(){S.draftText=null;render();};
+window._cp=function(){if(S.draftText){navigator.clipboard.writeText(S.draftText);var b=document.getElementById("cpbtn");if(b){b.textContent="✅ Copied!";setTimeout(function(){if(b)b.textContent="📋 Copy";},2000);}}};
+window._sn=function(){var t=(document.getElementById("ni")||{}).value||"";if(t.trim()&&S.detail)addNote(S.detail.id,t.trim());};
+window._dn=function(cid,nid){delNote(cid,nid);};
+window._sg=function(){var t=(document.getElementById("gi")||{}).value||"";if(t.trim()&&S.detail)addGift(S.detail.id,{id:uid(),text:t.trim(),occasion:S.addOccasion,bought:false,date:tod()}).then(function(){S.giftAdding=false;render();});};
+window._gg=function(){genGifts();};
+window._dg=function(cid,gid){delGift(cid,gid);};
+window._tg=function(cid,gid){togGift(cid,gid);};
+window._tt=function(t){S.addTags=S.addTags.includes(t)?S.addTags.filter(function(x){return x!==t;}):[...S.addTags,t];render();};
+window._sc=function(){
+  var fn=(document.getElementById("ac-fn")||{}).value||"";
+  if(!fn.trim())return;
+  var c={id:uid(),fname:fn.trim(),lname:((document.getElementById("ac-ln")||{}).value||"").trim(),phone:((document.getElementById("ac-ph")||{}).value||"").trim(),birthday:(document.getElementById("ac-bd")||{}).value||"",note:((document.getElementById("ac-nt")||{}).value||"").trim(),nudgeDays:parseInt((document.getElementById("ac-nd")||{}).value)||30,color:S.addColor,tags:[...S.addTags],lastContact:null,contactNotes:[],gifts:[]};
+  S.showAdd=false;S.addTags=[];render();
+  fbSet(c);
+};
+window.addEventListener("resize",render);
 </script>
 </body>
 </html>
