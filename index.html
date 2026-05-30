@@ -86,7 +86,7 @@ async function fbUp(id,p){S.syncStatus="saving";render();try{await updateDoc(cRe
 // AI
 async function callAI(prompt){
   try{
-    const r=await fetch("https://api.anthropic.com/v1/messages",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({model:"claude-sonnet-4-20250514",max_tokens:200,messages:[{role:"user",content:prompt}]})});
+    const r=await fetch("https://api.anthropic.com/v1/messages",{method:"POST",headers:{"Content-Type":"application/json","x-api-key":"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","anthropic-version":"2023-06-01","anthropic-dangerous-client-side-api-key-access":"true"},body:JSON.stringify({model:"claude-sonnet-4-20250514",max_tokens:200,messages:[{role:"user",content:prompt}]})});
     const d=await r.json();
     return d.content?.find(b=>b.type==="text")?.text?.trim()||null;
   }catch{return null;}
