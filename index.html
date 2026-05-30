@@ -47,7 +47,7 @@ let S = {
   addOccasion:"🎂 Birthday",
   draftText:null,draftLoading:false,
   noteAdding:false,giftAdding:false,giftGenerating:false,
-  showEdit:false,editColor:COLORS[0],editTags:[],
+  showEdit:false,editColor:COLORS[0],editTags:[],showApiKey:false,
   unsub:null
 };
 
@@ -267,6 +267,21 @@ function addModalHTML(){
     +'</div></div>';
 }
 
+function apiKeyModalHTML(){
+  if(!S.showApiKey)return "";
+  var hasKey=!!getApiKey();
+  return '<div style="position:fixed;inset:0;background:rgba(0,0,0,0.55);z-index:500;display:flex;align-items:center;justify-content:center;padding:16px">'
+    +'<div style="background:#fff;border-radius:18px;padding:22px;width:100%;max-width:400px;font-family:Nunito Sans,sans-serif">'
+    +'<div style="font-size:18px;font-weight:900;margin-bottom:6px;font-family:Nunito,sans-serif">🔑 Anthropic API Key</div>'
+    +'<div style="font-size:13px;color:#9B9B9B;margin-bottom:14px;line-height:1.5">Your key is saved in this browser only — never sent anywhere except Anthropic.</div>'
+    +(hasKey?'<div style="font-size:12px;font-weight:700;color:#27AE60;margin-bottom:10px">✅ Key currently saved</div>':"")
+    +'<input id="ak-input" type="password" placeholder="sk-ant-api03-…" style="width:100%;border:1.5px solid #E8E0D8;border-radius:10px;padding:10px 12px;font-size:13px;outline:none;margin-bottom:12px;box-sizing:border-box;font-family:monospace">'
+    +'<div style="display:flex;gap:10px">'
+    +'<button onclick="S.showApiKey=false;render()" style="flex:1;padding:11px;border-radius:12px;border:1.5px solid #E0E0E0;background:#fff;font-weight:700;cursor:pointer;color:#9B9B9B">Cancel</button>'
+    +'<button onclick="window._sak()" style="flex:2;padding:11px;border-radius:12px;border:none;background:#FF6B35;color:#fff;font-weight:800;font-size:14px;cursor:pointer;font-family:Nunito,sans-serif">Save Key</button>'
+    +'</div></div></div>';
+}
+
 function editModalHTML(){
   if(!S.showEdit||!S.detail)return "";
   var c=S.detail;
@@ -349,6 +364,7 @@ function render(){
       +(S.detail?detailHTML():"")
       +addModalHTML()
       +editModalHTML()
+      +apiKeyModalHTML()
       +'</div>';
   } else {
     root.innerHTML='<div style="display:flex;height:100vh;overflow:hidden">'
@@ -363,6 +379,7 @@ function render(){
       +(S.detail?detailHTML():"")
       +addModalHTML()
       +editModalHTML()
+      +apiKeyModalHTML()
       +'</div>';
   }
 }
@@ -387,7 +404,8 @@ window._gg=function(){genGifts();};
 window._dg=function(cid,gid){delGift(cid,gid);};
 window._tg=function(cid,gid){togGift(cid,gid);};
 window._tt=function(t){S.addTags=S.addTags.includes(t)?S.addTags.filter(function(x){return x!==t;}):[...S.addTags,t];render();};
-window._sk=function(){var k=prompt("Paste your Anthropic API key:");if(k&&k.trim()){localStorage.setItem("ic_anthropic_key",k.trim());render();}};
+window._sk=function(){S.showApiKey=true;render();};
+window._sak=function(){var k=(document.getElementById("ak-input")||{}).value||"";if(k.trim()){localStorage.setItem("ic_anthropic_key",k.trim());S.showApiKey=false;render();}};
 window._oe=function(id){var c=S.contacts.find(function(x){return x.id===id;});if(!c)return;S.detail=c;S.showEdit=true;S.editColor=c.color||COLORS[0];S.editTags=[...(c.tags||[])];render();};
 window._et=function(t){S.editTags=S.editTags.includes(t)?S.editTags.filter(function(x){return x!==t;}):[...S.editTags,t];render();};
 window._sve=function(){
