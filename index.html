@@ -112,13 +112,14 @@ async function genDraft(type){
 async function genGifts(){
   const c=S.detail;if(!c)return;
   S.giftGenerating=true;render();
+  const fallback=["Something personalized they'd love","Gift card to their favorite spot","A fun experience together"];
   try{
     const raw=await callAI('3 specific gift ideas for '+c.fname+' for '+S.addOccasion+'. Background: '+(c.note||"friend")+'. Under 10 words each. Return ONLY a JSON array like ["idea1","idea2","idea3"] no markdown.');
-    const ideas=JSON.parse((raw||"[]").replace(/```json|```/g,"").trim());
-    for(let i=0;i<ideas.length;i++)await addGift(c.id,{id:uid()+i,text:ideas[i],occasion:S.addOccasion,bought:false,date:tod()});
+    const ideas=raw?JSON.parse(raw.replace(/```json|```/g,"").trim()):[];
+    const list=ideas.length?ideas:fallback;
+    for(let i=0;i<list.length;i++)await addGift(c.id,{id:uid()+i,text:list[i],occasion:S.addOccasion,bought:false,date:tod()});
   }catch{
-    const d=["Something personalized they'd love","Gift card to their favorite spot","A fun experience together"];
-    for(let i=0;i<d.length;i++)await addGift(c.id,{id:uid()+i,text:d[i],occasion:S.addOccasion,bought:false,date:tod()});
+    for(let i=0;i<fallback.length;i++)await addGift(c.id,{id:uid()+i,text:fallback[i],occasion:S.addOccasion,bought:false,date:tod()});
   }
   S.giftGenerating=false;S.giftAdding=false;render();
 }
