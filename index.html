@@ -21,7 +21,7 @@ html,body,#root{height:100%;font-family:'Nunito Sans',sans-serif}
 <div id="root"><div style="height:100vh;display:flex;align-items:center;justify-content:center;font-size:18px;color:#9B9B9B;font-family:'Nunito',sans-serif">🔥 Loading…</div></div>
 <script type="module">
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
-import { getFirestore,collection,doc,onSnapshot,setDoc,updateDoc,query,orderBy,serverTimestamp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
+import { getFirestore,collection,doc,onSnapshot,setDoc,updateDoc,query,serverTimestamp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
 
 const app = initializeApp({
   apiKey:"AIzaSyDINHNV1Ze3QfhXwBPwe22LnUe-xxnU-n4",
@@ -47,11 +47,13 @@ let S = {
   addOccasion:"🎂 Birthday",
   draftText:null,draftLoading:false,
   noteAdding:false,giftAdding:false,giftGenerating:false,
+  showEdit:false,editColor:COLORS[0],editTags:[],
   unsub:null
 };
 
 // helpers
 function uid(){return Date.now().toString(36)+Math.random().toString(36).slice(2);}
+function escH(s){return String(s).replace(/&/g,"&amp;").replace(/"/g,"&quot;").replace(/</g,"&lt;").replace(/>/g,"&gt;");}
 function tod(){return new Date().toISOString().slice(0,10);}
 function daysSince(d){if(!d)return 999;return Math.floor((Date.now()-new Date(d).getTime())/86400000);}
 function dbu(b){if(!b)return null;const dt=new Date(b);const n=new Date();const nx=new Date(n.getFullYear(),dt.getMonth(),dt.getDate());if(nx<n)nx.setFullYear(n.getFullYear()+1);return Math.floor((nx-n)/86400000);}
@@ -72,7 +74,7 @@ async function fbUp(id,p){S.syncStatus="saving";render();try{await updateDoc(cRe
 
 // subscribe
 (function start(){
-  const q=query(cCol(),orderBy("_ts","asc"));
+  const q=query(cCol());
   S.unsub=onSnapshot(q,snap=>{
     S.contacts=snap.docs.map(d=>({id:d.id,...d.data()}));
     S.syncStatus="synced";
@@ -232,7 +234,7 @@ function detailHTML(){
     +'<div>'+(c.phone?'<div style="display:flex;align-items:center;gap:8px;padding:7px 0;border-bottom:1px solid #F0E8DF;font-size:13px;color:#555"><span>📞</span>+'+c.phone.replace(/\D/g,"")+'</div>':"")+'<div style="display:flex;align-items:flex-start;gap:8px;padding:7px 0;border-bottom:1px solid #F0E8DF;font-size:13px;color:#555"><span>📝</span><span>'+(c.note||"No note")+'</span></div><div style="display:flex;gap:8px;padding:7px 0;border-bottom:1px solid #F0E8DF;font-size:13px;color:#555"><span>⏱️</span>Last contact: <b>'+(d===999?"Never":d+"d ago")+'</b></div><div style="display:flex;gap:8px;padding:7px 0;font-size:13px;color:#555"><span>🔔</span>Nudge every '+c.nudgeDays+' days</div></div>'
     +'<div style="background:'+u.bg+';border-radius:10px;padding:9px 12px;font-size:13px;font-weight:700;color:'+u.col+'">'+u.label+'</div>'
     +draft+ns+gs
-    +'<div style="display:flex;gap:10px;padding-top:8px"><button onclick="window._mc(\''+c.id+'\')" style="flex:2;padding:11px;border-radius:12px;border:none;background:#FF6B35;color:#fff;font-weight:800;font-size:14px;cursor:pointer;font-family:Nunito,sans-serif">✅ Mark Contacted</button><button onclick="window._en(\''+c.id+'\')" style="flex:1;padding:11px;border-radius:12px;border:1.5px solid #E0E0E0;background:#fff;font-weight:700;font-size:13px;cursor:pointer;color:#9B9B9B">⚙️ Nudge</button></div>'
+    +'<div style="display:flex;gap:10px;padding-top:8px"><button onclick="window._mc(\''+c.id+'\')" style="flex:2;padding:11px;border-radius:12px;border:none;background:#FF6B35;color:#fff;font-weight:800;font-size:14px;cursor:pointer;font-family:Nunito,sans-serif">✅ Mark Contacted</button><button onclick="window._oe(\''+c.id+'\')" style="flex:1;padding:11px;border-radius:12px;border:1.5px solid #E0E0E0;background:#fff;font-weight:700;font-size:13px;cursor:pointer;color:#9B9B9B">✏️ Edit</button></div>'
     +'</div></div>';
 }
 
@@ -259,6 +261,32 @@ function addModalHTML(){
     +'</div></div>'
     +'<div style="display:flex;gap:10px"><button onclick="S.showAdd=false;render()" style="flex:1;padding:11px;border-radius:12px;border:1.5px solid #E0E0E0;background:#fff;font-weight:700;cursor:pointer;color:#9B9B9B">Cancel</button>'
     +'<button onclick="window._sc()" style="flex:2;padding:11px;border-radius:12px;border:none;background:#FF6B35;color:#fff;font-weight:800;font-size:14px;cursor:pointer;font-family:Nunito,sans-serif">Add to Inner Circle 🔥</button></div>'
+    +'</div></div>';
+}
+
+function editModalHTML(){
+  if(!S.showEdit||!S.detail)return "";
+  var c=S.detail;
+  var inp="width:100%;border:1.5px solid #E8E0D8;border-radius:10px;padding:9px 12px;font-size:14px;color:#2C2C2C;outline:none;font-family:Nunito Sans,sans-serif;box-sizing:border-box;background:#FAFAFA";
+  return '<div style="position:fixed;inset:0;background:rgba(0,0,0,0.55);z-index:400;display:flex;align-items:center;justify-content:center;padding:16px">'
+    +'<div style="background:#fff;border-radius:18px;padding:22px;width:100%;max-width:460px;max-height:90vh;overflow-y:auto;font-family:Nunito Sans,sans-serif">'
+    +'<div style="font-size:18px;font-weight:900;margin-bottom:16px;font-family:Nunito,sans-serif">Edit Contact ✏️</div>'
+    +'<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px">'
+    +'<div><label style="font-size:11px;font-weight:700;color:#9B9B9B;text-transform:uppercase;display:block;margin-bottom:4px">First Name</label><input id="ec-fn" value="'+escH(c.fname||"")+'" style="'+inp+'"></div>'
+    +'<div><label style="font-size:11px;font-weight:700;color:#9B9B9B;text-transform:uppercase;display:block;margin-bottom:4px">Last Name</label><input id="ec-ln" value="'+escH(c.lname||"")+'" style="'+inp+'"></div></div>'
+    +'<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px">'
+    +'<div><label style="font-size:11px;font-weight:700;color:#9B9B9B;text-transform:uppercase;display:block;margin-bottom:4px">Phone</label><input id="ec-ph" value="'+escH(c.phone||"")+'" style="'+inp+'"></div>'
+    +'<div><label style="font-size:11px;font-weight:700;color:#9B9B9B;text-transform:uppercase;display:block;margin-bottom:4px">Birthday</label><input id="ec-bd" type="date" value="'+(c.birthday||"")+'" style="'+inp+'"></div></div>'
+    +'<div style="margin-bottom:10px"><label style="font-size:11px;font-weight:700;color:#9B9B9B;text-transform:uppercase;display:block;margin-bottom:4px">How do you know them?</label><input id="ec-nt" value="'+escH(c.note||"")+'" style="'+inp+'"></div>'
+    +'<div style="margin-bottom:10px"><label style="font-size:11px;font-weight:700;color:#9B9B9B;text-transform:uppercase;display:block;margin-bottom:4px">Nudge every (days)</label><input id="ec-nd" type="number" value="'+(c.nudgeDays||30)+'" style="'+inp+'"></div>'
+    +'<div style="margin-bottom:10px"><label style="font-size:11px;font-weight:700;color:#9B9B9B;text-transform:uppercase;display:block;margin-bottom:4px">Color</label><div style="display:flex;gap:7px;margin-top:4px">'
+    +COLORS.map(function(col){return '<div onclick="S.editColor=\''+col+'\';render()" style="width:28px;height:28px;border-radius:50%;background:'+col+';cursor:pointer;border:'+(S.editColor===col?"3px solid #333":"3px solid transparent")+'"></div>';}).join("")
+    +'</div></div>'
+    +'<div style="margin-bottom:16px"><label style="font-size:11px;font-weight:700;color:#9B9B9B;text-transform:uppercase;display:block;margin-bottom:7px">Groups</label><div style="display:flex;gap:6px;flex-wrap:wrap">'
+    +["bbq","friends","kids","family","work"].map(function(t){return '<button onclick="window._et(\''+t+'\')" style="padding:5px 10px;border-radius:20px;border:1.5px solid '+(S.editTags.includes(t)?"#FF6B35":"#E0E0E0")+';background:'+(S.editTags.includes(t)?"#FF6B35":"#fff")+';color:'+(S.editTags.includes(t)?"#fff":"#9B9B9B")+';font-weight:700;font-size:12px;cursor:pointer">'+(TAG_META[t]?TAG_META[t].label:t)+'</button>';}).join("")
+    +'</div></div>'
+    +'<div style="display:flex;gap:10px"><button onclick="S.showEdit=false;render()" style="flex:1;padding:11px;border-radius:12px;border:1.5px solid #E0E0E0;background:#fff;font-weight:700;cursor:pointer;color:#9B9B9B">Cancel</button>'
+    +'<button onclick="window._sve()" style="flex:2;padding:11px;border-radius:12px;border:none;background:#FF6B35;color:#fff;font-weight:800;font-size:14px;cursor:pointer;font-family:Nunito,sans-serif">Save Changes ✅</button></div>'
     +'</div></div>';
 }
 
@@ -314,6 +342,7 @@ function render(){
       +'</div>'
       +(S.detail?detailHTML():"")
       +addModalHTML()
+      +editModalHTML()
       +'</div>';
   } else {
     root.innerHTML='<div style="display:flex;height:100vh;overflow:hidden">'
@@ -327,11 +356,14 @@ function render(){
       +'</div>'
       +(S.detail?detailHTML():"")
       +addModalHTML()
+      +editModalHTML()
       +'</div>';
   }
 }
 
 // ── globals ──────────────────────────────────────────────────
+window.S=S;
+window.render=render;
 window._sv=function(v){S.view=v;S.group="all";render();};
 window._sg2=function(g){S.group=g;S.view="contacts";render();};
 window._od=function(id){S.detail=S.contacts.find(function(c){return c.id===id;})||null;S.draftText=null;S.draftLoading=false;S.noteAdding=false;S.giftAdding=false;render();};
@@ -349,6 +381,17 @@ window._gg=function(){genGifts();};
 window._dg=function(cid,gid){delGift(cid,gid);};
 window._tg=function(cid,gid){togGift(cid,gid);};
 window._tt=function(t){S.addTags=S.addTags.includes(t)?S.addTags.filter(function(x){return x!==t;}):[...S.addTags,t];render();};
+window._oe=function(id){var c=S.contacts.find(function(x){return x.id===id;});if(!c)return;S.detail=c;S.showEdit=true;S.editColor=c.color||COLORS[0];S.editTags=[...(c.tags||[])];render();};
+window._et=function(t){S.editTags=S.editTags.includes(t)?S.editTags.filter(function(x){return x!==t;}):[...S.editTags,t];render();};
+window._sve=function(){
+  if(!S.detail)return;
+  var fn=(document.getElementById("ec-fn")||{}).value||"";
+  if(!fn.trim())return;
+  var patch={fname:fn.trim(),lname:((document.getElementById("ec-ln")||{}).value||"").trim(),phone:((document.getElementById("ec-ph")||{}).value||"").trim(),birthday:(document.getElementById("ec-bd")||{}).value||"",note:((document.getElementById("ec-nt")||{}).value||"").trim(),nudgeDays:parseInt((document.getElementById("ec-nd")||{}).value)||30,color:S.editColor,tags:[...S.editTags]};
+  var id=S.detail.id;
+  S.showEdit=false;render();
+  fbUp(id,patch);
+};
 window._sc=function(){
   var fn=(document.getElementById("ac-fn")||{}).value||"";
   if(!fn.trim())return;
