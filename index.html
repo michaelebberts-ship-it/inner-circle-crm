@@ -34,7 +34,7 @@ const app = initializeApp({
 const db = getFirestore(app);
 const FIXED_UID = "owner-inner-circle-crm";
 
-const GROUPS = [{id:"all",label:"Everyone",icon:"🌐"},{id:"bbq",label:"BBQ Team",icon:"🍖"},{id:"friends",label:"Close Friends",icon:"🍺"},{id:"kids",label:"Kids' Parents",icon:"⚽"},{id:"family",label:"Family",icon:"🏡"}];
+const GROUPS = [{id:"all",label:"Everyone",icon:"🌐"},{id:"bbq",label:"BBQ Team",icon:"🍖"},{id:"friends",label:"Close Friends",icon:"🍺"},{id:"kids",label:"Kids' Parents",icon:"⚽"},{id:"family",label:"Family",icon:"🏡"},{id:"work",label:"Work",icon:"💼"}];
 const TAG_META = {bbq:{label:"🍖 BBQ",bg:"#FFF3E0",col:"#E65100"},friends:{label:"🍺 Friends",bg:"#E8F5E9",col:"#2E7D32"},kids:{label:"⚽ Kids",bg:"#E3F2FD",col:"#1565C0"},family:{label:"🏡 Family",bg:"#FCE4EC",col:"#880E4F"},work:{label:"💼 Work",bg:"#F3E5F5",col:"#6A1B9A"}};
 const COLORS = ["#FF6B35","#3498DB","#2ECC71","#9B59B6","#E91E63","#F39C12","#1ABC9C"];
 const OCCASIONS = ["🎂 Birthday","🎄 Christmas","🎁 Holiday","👨‍👧 Father's Day","👩‍👧 Mother's Day","🎓 Graduation","🏠 Housewarming","💍 Wedding","⭐ Just because"];
@@ -197,7 +197,14 @@ function dashView(){
 function contactsView(){
   var list=S.group==="all"?S.contacts:S.contacts.filter(function(c){return(c.tags||[]).includes(S.group);});
   if(S.search.trim()){var q=S.search.trim().toLowerCase();list=list.filter(function(c){return(c.fname+" "+c.lname).toLowerCase().includes(q);});}
-  var h='<div style="margin-bottom:12px"><input oninput="S.search=this.value;render()" value="'+escH(S.search)+'" placeholder="🔍 Search contacts…" style="width:100%;border:1.5px solid #E8E0D8;border-radius:10px;padding:9px 14px;font-size:14px;outline:none;font-family:Nunito Sans,sans-serif;box-sizing:border-box;background:#fff"></div>';
+  var h='<div style="display:flex;gap:8px;overflow-x:auto;padding-bottom:6px;margin-bottom:12px">';
+  GROUPS.forEach(function(g){
+    var active=S.group===g.id;
+    var count=g.id==="all"?S.contacts.length:S.contacts.filter(function(c){return(c.tags||[]).includes(g.id);}).length;
+    h+='<button onclick="window._sg2(\''+g.id+'\')" style="flex-shrink:0;display:flex;align-items:center;gap:6px;padding:7px 13px;border-radius:20px;border:1.5px solid '+(active?"#FF6B35":"#E8E0D8")+';background:'+(active?"#FF6B35":"#fff")+';color:'+(active?"#fff":"#6B6B6B")+';font-weight:700;font-size:13px;cursor:pointer;font-family:Nunito,sans-serif;white-space:nowrap">'+g.icon+' '+g.label+'<span style="opacity:0.7;font-size:11px;font-weight:800">'+count+'</span></button>';
+  });
+  h+='</div>';
+  h+='<div style="margin-bottom:12px"><input oninput="S.search=this.value;render()" value="'+escH(S.search)+'" placeholder="🔍 Search contacts…" style="width:100%;border:1.5px solid #E8E0D8;border-radius:10px;padding:9px 14px;font-size:14px;outline:none;font-family:Nunito Sans,sans-serif;box-sizing:border-box;background:#fff"></div>';
   if(S.group!=="all"){var gm=GROUPS.find(function(g){return g.id===S.group;})||{label:"group"};h+='<button onclick="window._gt(\''+S.group+'\')" style="width:100%;padding:11px;border-radius:12px;border:none;background:#FF6B35;color:#fff;font-weight:800;font-size:14px;cursor:pointer;font-family:Nunito,sans-serif;margin-bottom:12px">💬 Text all of '+gm.label+'</button>';}
   if(!list.length)return h+'<div style="text-align:center;padding:40px;color:#9B9B9B"><div style="font-size:40px;margin-bottom:12px">👥</div><p>'+(S.search?"No matches":"No contacts here yet!")+'</p></div>';
   h+='<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:12px">';
