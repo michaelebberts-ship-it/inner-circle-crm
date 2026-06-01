@@ -59,6 +59,8 @@ function uid(){return Date.now().toString(36)+Math.random().toString(36).slice(2
 function escH(s){return String(s).replace(/&/g,"&amp;").replace(/"/g,"&quot;").replace(/</g,"&lt;").replace(/>/g,"&gt;");}
 function tod(){return new Date().toISOString().slice(0,10);}
 function daysSince(d){if(!d)return 999;return Math.floor((Date.now()-new Date(d).getTime())/86400000);}
+function telDigits(p){var d=String(p||"").replace(/\D/g,"");if(!d)return "";if(d.length===10)d="1"+d;return d;}
+function fmtPhone(p){var d=telDigits(p);if(!d)return "";if(d.length===11&&d.charAt(0)==="1")return "+1 ("+d.slice(1,4)+") "+d.slice(4,7)+"-"+d.slice(7);return "+"+d;}
 function dbu(b){if(!b)return null;const p=String(b).split("-");if(p.length<3)return null;const n=new Date();const t=new Date(n.getFullYear(),n.getMonth(),n.getDate());const nx=new Date(n.getFullYear(),(+p[1])-1,+p[2]);if(nx<t)nx.setFullYear(n.getFullYear()+1);return Math.round((nx-t)/86400000);}
 function fmtB(b){if(!b)return null;const p=String(b).split("-");if(p.length<3)return null;return new Date(+p[0],(+p[1])-1,+p[2]).toLocaleDateString("en-US",{month:"long",day:"numeric"});}
 function fmtD(iso){return new Date(iso).toLocaleDateString("en-US",{month:"short",day:"numeric",year:"numeric"});}
@@ -135,7 +137,7 @@ function parseVCards(text){
     if(!fname&&!lname&&fn){var parts=fn.trim().split(/\s+/);fname=parts.shift()||"";lname=parts.join(" ");}
     if(!fname&&!lname)return;
     var tel="";if(tels.length){tel=(tels.filter(function(t){return t.pref;})[0]||tels[0]).val;}
-    var digits=tel.replace(/\D/g,"");if(digits.length===10)digits="1"+digits;
+    var digits=telDigits(tel);
     out.push({fname:fname.trim(),lname:lname.trim(),phone:digits,birthday:normBday(bday),note:org?("Works at "+org):""});
   });
   return out;
@@ -334,7 +336,7 @@ function detailHTML(){
   if(S.draftLoading){
     draft+='<div style="display:flex;align-items:center;gap:10px;padding:12px;background:#F9FAFB;border-radius:12px;font-size:13px;color:#9B9B9B;font-style:italic"><div style="width:14px;height:14px;border:2px solid #E0E0E0;border-top-color:#FF6B35;border-radius:50%;animation:spin 0.7s linear infinite"></div>Thinking…</div>';
   } else if(S.draftText){
-    var sms=c.phone?"sms:+"+c.phone.replace(/\D/g,"")+"?body="+encodeURIComponent(S.draftText):"";
+    var sms=c.phone?"sms:+"+telDigits(c.phone)+"?body="+encodeURIComponent(S.draftText):"";
     draft+='<div style="background:#F0FFF4;border:1.5px solid #C8E6C9;border-radius:12px;padding:12px;font-size:13px;color:#1B5E20;line-height:1.7;font-style:italic">'+S.draftText.replace(/</g,"&lt;")+'</div><div style="display:flex;gap:8px;margin-top:8px;flex-wrap:wrap">'+(sms?'<a href="'+sms+'" style="display:flex;align-items:center;gap:5px;padding:7px 12px;border-radius:10px;background:#34C759;color:#fff;font-weight:800;font-size:12px;text-decoration:none">📱 Messages</a>':"")+'<button onclick="window._cp()" id="cpbtn" style="padding:7px 12px;border-radius:10px;border:1.5px solid #E0E0E0;background:#fff;font-size:12px;cursor:pointer">📋 Copy</button><button onclick="window._cd()" style="padding:7px 12px;border-radius:10px;border:1.5px solid #E0E0E0;background:#fff;font-size:12px;cursor:pointer;color:#9B9B9B">↺ New</button></div>';
   } else {
     draft+='<div style="display:flex;gap:7px;flex-wrap:wrap"><button onclick="window._gd(\'catchup\')" style="padding:8px 12px;border-radius:10px;border:none;background:#FF6B35;color:#fff;font-weight:800;font-size:12px;cursor:pointer">💬 Check in</button><button onclick="window._gd(\'hangout\')" style="padding:8px 12px;border-radius:10px;border:none;background:#3498DB;color:#fff;font-weight:800;font-size:12px;cursor:pointer">🍻 Hangout</button>'+(isBday?'<button onclick="window._gd(\'birthday\')" style="padding:8px 12px;border-radius:10px;border:none;background:#F39C12;color:#fff;font-weight:800;font-size:12px;cursor:pointer">🎂 Birthday</button>':"")+'<button onclick="window._gd(\'bbq\')" style="padding:8px 12px;border-radius:10px;border:none;background:#2ECC71;color:#fff;font-weight:800;font-size:12px;cursor:pointer">🔥 BBQ</button></div>';
@@ -371,7 +373,7 @@ function detailHTML(){
   return '<div onclick="if(event.target===this)window._cl()" style="position:fixed;inset:0;background:rgba(0,0,0,0.45);z-index:200;display:flex;align-items:center;justify-content:flex-end"><div style="width:min(420px,100vw);height:100%;background:#fff;overflow-y:auto;padding:22px;display:flex;flex-direction:column;gap:16px;font-family:Nunito Sans,sans-serif;animation:slideIn 0.2s ease">'
     +'<div style="display:flex;align-items:flex-start;gap:12px"><div style="width:54px;height:54px;border-radius:50%;background:'+c.color+'22;color:'+c.color+';display:flex;align-items:center;justify-content:center;font-size:18px;font-weight:900;flex-shrink:0">'+ini(c)+'</div><div style="flex:1"><div style="font-size:20px;font-weight:900;color:#2C2C2C;font-family:Nunito,sans-serif">'+c.fname+' '+c.lname+'</div><div style="display:flex;gap:4px;flex-wrap:wrap;margin-top:5px">'+(c.tags||[]).map(tagPill).join("")+'</div></div><button onclick="window._cl()" style="background:#F5F5F5;border:none;border-radius:50%;width:28px;height:28px;cursor:pointer;font-size:13px;flex-shrink:0">✕</button></div>'
     +(isBday?'<div style="background:#FFF8E1;border:1.5px solid #FFE082;border-radius:10px;padding:10px 12px;font-weight:700;font-size:13px;color:#F57F17">🎂 '+(bd===0?"It\'s their birthday TODAY! 🎉":"Birthday in "+bd+(bd===1?" day":"days")+"!")+" — "+fmtB(c.birthday)+"</div>":"")
-    +'<div>'+(c.phone?'<div style="display:flex;align-items:center;gap:8px;padding:7px 0;border-bottom:1px solid #F0E8DF;font-size:13px;color:#555"><span>📞</span>+'+c.phone.replace(/\D/g,"")+'</div>':"")+'<div style="display:flex;align-items:flex-start;gap:8px;padding:7px 0;border-bottom:1px solid #F0E8DF;font-size:13px;color:#555"><span>📝</span><span>'+(c.note||"No note")+'</span></div><div style="display:flex;gap:8px;padding:7px 0;border-bottom:1px solid #F0E8DF;font-size:13px;color:#555"><span>⏱️</span>Last contact: <b>'+(d===999?"Never":d+"d ago")+'</b></div><div style="display:flex;gap:8px;padding:7px 0;font-size:13px;color:#555"><span>🔔</span>Nudge every '+c.nudgeDays+' days</div></div>'
+    +'<div>'+(c.phone?'<div style="display:flex;align-items:center;gap:8px;padding:7px 0;border-bottom:1px solid #F0E8DF;font-size:13px;color:#555"><span>📞</span>'+fmtPhone(c.phone)+'</div>':"")+'<div style="display:flex;align-items:flex-start;gap:8px;padding:7px 0;border-bottom:1px solid #F0E8DF;font-size:13px;color:#555"><span>📝</span><span>'+(c.note||"No note")+'</span></div><div style="display:flex;gap:8px;padding:7px 0;border-bottom:1px solid #F0E8DF;font-size:13px;color:#555"><span>⏱️</span>Last contact: <b>'+(d===999?"Never":d+"d ago")+'</b></div><div style="display:flex;gap:8px;padding:7px 0;font-size:13px;color:#555"><span>🔔</span>Nudge every '+c.nudgeDays+' days</div></div>'
     +'<div style="background:'+u.bg+';border-radius:10px;padding:9px 12px;font-size:13px;font-weight:700;color:'+u.col+'">'+u.label+'</div>'
     +'<div style="background:'+st.bg+';border-radius:10px;padding:10px 12px"><div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px"><span style="font-size:12px;font-weight:800;color:'+st.col+'">'+st.emoji+' '+st.label+' connection</span><span style="font-size:11px;color:#9B9B9B">'+notes.length+' note'+(notes.length===1?"":"s")+'</span></div><div style="height:6px;background:#fff;border-radius:10px;overflow:hidden"><div style="height:100%;width:'+st.pct+'%;background:'+st.col+';border-radius:10px"></div></div></div>'
     +draft+ns+gs
@@ -426,7 +428,7 @@ function groupTextModalHTML(){
       :'')
     +(crew.length?'<div style="font-size:10px;font-weight:800;color:#9B9B9B;text-transform:uppercase;letter-spacing:1.5px;margin-bottom:8px">Open in Messages ('+withPhone+'/'+crew.length+' have a number)</div>':'<div style="text-align:center;padding:24px;color:#9B9B9B;font-size:13px">No one in this group yet.</div>')
     +crew.map(function(c){
-      var sms=c.phone?'href="sms:+'+c.phone.replace(/\D/g,"")+(S.groupTextDraft?"?body="+encodeURIComponent(S.groupTextDraft):"")+'"':"";
+      var sms=c.phone?'href="sms:+'+telDigits(c.phone)+(S.groupTextDraft?"?body="+encodeURIComponent(S.groupTextDraft):"")+'"':"";
       return '<'+(sms?"a "+sms:'div')+' style="display:flex;align-items:center;gap:10px;padding:9px 12px;border-radius:10px;background:#FAFAFA;border:1px solid #F0E8DF;margin-bottom:6px;text-decoration:none;color:inherit;opacity:'+(sms?"1":"0.55")+'">'
         +'<div style="width:34px;height:34px;border-radius:50%;background:'+c.color+'22;color:'+c.color+';display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:900;flex-shrink:0">'+ini(c)+'</div>'
         +'<div style="flex:1;font-weight:700;font-size:13px">'+c.fname+' '+c.lname+'</div>'
@@ -661,7 +663,7 @@ window._impFile=function(input){
   r.onload=function(){
     var cards=parseVCards(String(r.result||""));
     var phones={},names={};
-    S.contacts.forEach(function(c){if(c.phone)phones[c.phone.replace(/\D/g,"")]=1;names[((c.fname||"")+" "+(c.lname||"")).trim().toLowerCase()]=1;});
+    S.contacts.forEach(function(c){if(c.phone)phones[telDigits(c.phone)]=1;names[((c.fname||"")+" "+(c.lname||"")).trim().toLowerCase()]=1;});
     var seen={};
     cards=cards.filter(function(p){var k=(p.fname+" "+p.lname+"|"+p.phone).toLowerCase();if(seen[k])return false;seen[k]=1;return true;});
     cards.forEach(function(p){var dup=(p.phone&&phones[p.phone])||names[((p.fname||"")+" "+(p.lname||"")).trim().toLowerCase()];p._dup=!!dup;p._sel=!dup;});
