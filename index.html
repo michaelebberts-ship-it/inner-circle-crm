@@ -50,6 +50,7 @@ let S = {
   showEdit:false,editColor:COLORS[0],editTags:[],showApiKey:false,search:"",
   showGroupText:false,groupTextTag:"friends",groupTextDraft:null,groupTextLoading:false,
   notifEnabled:("Notification" in window)&&Notification.permission==="granted",
+  showImport:false,importParsed:[],importTags:[],importing:false,
   unsub:null
 };
 
@@ -105,6 +106,53 @@ async function fbUp(id,p){S.syncStatus="saving";render();try{await updateDoc(cRe
     try{maybeNotify(false);}catch(e){}
   },()=>{S.syncStatus="error";render();});
 })();
+
+// vCard import
+function vcUnescape(v){return String(v).replace(/\\n/gi,"\n").replace(/\\,/g,",").replace(/\\;/g,";").replace(/\\\\/g,"\\");}
+function vcDecode(v,params){if(/QUOTED-PRINTABLE/.test(params)){try{v=v.replace(/=\r?\n/g,"").replace(/=([0-9A-F]{2})/gi,function(_,hx){return String.fromCharCode(parseInt(hx,16));});}catch(e){}}return vcUnescape(v);}
+function normBday(b){if(!b)return "";b=b.trim();var m;if((m=b.match(/^(\d{4})-?(\d{2})-?(\d{2})/)))return m[1]+"-"+m[2]+"-"+m[3];if((m=b.match(/^--?(\d{2})-?(\d{2})$/)))return "2000-"+m[1]+"-"+m[2];return "";}
+function parseVCards(text){
+  text=String(text).replace(/\r\n/g,"\n").replace(/\n[ \t]/g,"");
+  var out=[];
+  var blocks=text.split(/BEGIN:VCARD/i).slice(1);
+  blocks.forEach(function(b){
+    var body=b.split(/END:VCARD/i)[0];
+    var fn="",n=null,tels=[],bday="",org="";
+    body.split("\n").forEach(function(line){
+      line=line.replace(/\r/g,"").trim();if(!line)return;
+      var ci=line.indexOf(":");if(ci<0)return;
+      var head=line.slice(0,ci),val=line.slice(ci+1).trim();
+      var hp=head.split(";");var nm=hp[0];if(nm.indexOf(".")>-1)nm=nm.split(".").pop();nm=nm.toUpperCase();
+      var params=hp.slice(1).join(";").toUpperCase();
+      if(nm==="FN")fn=vcDecode(val,params);
+      else if(nm==="N")n=val.split(";").map(function(x){return vcUnescape(x).trim();});
+      else if(nm==="TEL")tels.push({val:val,pref:/PREF|CELL|MOBILE|IPHONE|MAIN/.test(params)});
+      else if(nm==="BDAY")bday=val;
+      else if(nm==="ORG")org=vcDecode(val,params).split(";")[0].trim();
+    });
+    var fname="",lname="";
+    if(n){lname=n[0]||"";fname=n[1]||"";}
+    if(!fname&&!lname&&fn){var parts=fn.trim().split(/\s+/);fname=parts.shift()||"";lname=parts.join(" ");}
+    if(!fname&&!lname)return;
+    var tel="";if(tels.length){tel=(tels.filter(function(t){return t.pref;})[0]||tels[0]).val;}
+    var digits=tel.replace(/\D/g,"");if(digits.length===10)digits="1"+digits;
+    out.push({fname:fname.trim(),lname:lname.trim(),phone:digits,birthday:normBday(bday),note:org?("Works at "+org):""});
+  });
+  return out;
+}
+async function doImport(){
+  var sel=S.importParsed.filter(function(p){return p._sel;});
+  if(!sel.length)return;
+  S.importing=true;S.syncStatus="saving";render();
+  try{
+    await Promise.all(sel.map(function(p){
+      var c={id:uid()+Math.random().toString(36).slice(2,6),fname:p.fname,lname:p.lname,phone:p.phone||"",birthday:p.birthday||"",note:p.note||"",nudgeDays:30,color:COLORS[Math.floor(Math.random()*COLORS.length)],tags:[...S.importTags],lastContact:null,contactNotes:[],gifts:[]};
+      return setDoc(cRef(c.id),{...c,_ts:serverTimestamp()});
+    }));
+    S.syncStatus="synced";
+  }catch(e){S.syncStatus="error";}
+  S.importing=false;S.showImport=false;S.importParsed=[];S.importTags=[];render();
+}
 
 // AI
 function getApiKey(){return localStorage.getItem("ic_anthropic_key")||"";}
@@ -189,7 +237,7 @@ function dashView(){
       +'</div>';
   }
   if(!S.contacts.length){
-    h='<div style="text-align:center;padding:50px 20px"><div style="font-size:48px;margin-bottom:12px">👋</div><div style="font-family:Nunito,sans-serif;font-size:20px;font-weight:800;margin-bottom:8px">Welcome!</div><div style="font-size:14px;color:#9B9B9B;line-height:1.6;margin-bottom:24px">Add your BBQ crew, close friends,<br>kids\' parents — whoever matters.</div><button onclick="window._oa()" style="padding:12px 24px;border-radius:12px;border:none;background:#FF6B35;color:#fff;font-weight:800;font-size:15px;cursor:pointer;font-family:Nunito,sans-serif">+ Add first contact 🔥</button></div>';
+    h='<div style="text-align:center;padding:50px 20px"><div style="font-size:48px;margin-bottom:12px">👋</div><div style="font-family:Nunito,sans-serif;font-size:20px;font-weight:800;margin-bottom:8px">Welcome!</div><div style="font-size:14px;color:#9B9B9B;line-height:1.6;margin-bottom:24px">Add your BBQ crew, close friends,<br>kids\' parents — whoever matters.</div><button onclick="window._oa()" style="padding:12px 24px;border-radius:12px;border:none;background:#FF6B35;color:#fff;font-weight:800;font-size:15px;cursor:pointer;font-family:Nunito,sans-serif">+ Add first contact 🔥</button><div style="margin-top:14px"><button onclick="window._oi()" style="padding:10px 20px;border-radius:12px;border:1.5px solid #E8C4B0;background:#fff;color:#FF6B35;font-weight:800;font-size:14px;cursor:pointer;font-family:Nunito,sans-serif">📥 Or import from Apple Contacts</button></div></div>';
   }
   return h;
 }
@@ -336,7 +384,8 @@ function addModalHTML(){
   var inp="width:100%;border:1.5px solid #E8E0D8;border-radius:10px;padding:9px 12px;font-size:14px;color:#2C2C2C;outline:none;font-family:Nunito Sans,sans-serif;box-sizing:border-box;background:#FAFAFA";
   return '<div style="position:fixed;inset:0;background:rgba(0,0,0,0.45);z-index:300;display:flex;align-items:center;justify-content:center;padding:16px">'
     +'<div style="background:#fff;border-radius:18px;padding:22px;width:100%;max-width:460px;max-height:90vh;overflow-y:auto;font-family:Nunito Sans,sans-serif">'
-    +'<div style="font-size:18px;font-weight:900;margin-bottom:16px;font-family:Nunito,sans-serif">Add to Inner Circle ✨</div>'
+    +'<div style="font-size:18px;font-weight:900;margin-bottom:12px;font-family:Nunito,sans-serif">Add to Inner Circle ✨</div>'
+    +'<button onclick="window._oi()" style="width:100%;padding:10px;border-radius:12px;border:1.5px solid #E8C4B0;background:#FFFBF8;color:#FF6B35;font-weight:800;font-size:13px;cursor:pointer;margin-bottom:14px;font-family:Nunito,sans-serif">📥 Import a list from Apple Contacts</button>'
     +'<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px">'
     +'<div><label style="font-size:11px;font-weight:700;color:#9B9B9B;text-transform:uppercase;display:block;margin-bottom:4px">First Name</label><input id="ac-fn" style="'+inp+'" placeholder="Mike"></div>'
     +'<div><label style="font-size:11px;font-weight:700;color:#9B9B9B;text-transform:uppercase;display:block;margin-bottom:4px">Last Name</label><input id="ac-ln" style="'+inp+'" placeholder="Johnson"></div></div>'
@@ -386,6 +435,42 @@ function groupTextModalHTML(){
     }).join("")
     +'<button onclick="S.showGroupText=false;render()" style="width:100%;padding:11px;border-radius:12px;border:1.5px solid #E0E0E0;background:#fff;font-weight:700;cursor:pointer;color:#9B9B9B;margin-top:8px">Done</button>'
     +'</div></div>';
+}
+
+function importModalHTML(){
+  if(!S.showImport)return "";
+  var parsed=S.importParsed;
+  var selCount=parsed.filter(function(p){return p._sel;}).length;
+  var h='<div style="position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:600;display:flex;align-items:center;justify-content:center;padding:16px">'
+    +'<div style="background:#fff;border-radius:18px;padding:22px;width:100%;max-width:480px;max-height:90vh;overflow-y:auto;font-family:Nunito Sans,sans-serif">'
+    +'<div style="font-size:18px;font-weight:900;margin-bottom:4px;font-family:Nunito,sans-serif">📥 Import Contacts</div>'
+    +'<div style="font-size:12px;color:#9B9B9B;margin-bottom:14px;line-height:1.5">In Apple Contacts: select people → File → Export → Export vCard. Then pick that <b>.vcf</b> file here.</div>';
+  if(!parsed.length){
+    h+='<label style="display:block;border:1.5px dashed #E8C4B0;border-radius:14px;padding:28px 16px;text-align:center;cursor:pointer;background:#FFFBF8">'
+      +'<input type="file" accept=".vcf,.vcard,text/vcard,text/x-vcard" onchange="window._impFile(this)" style="display:none">'
+      +'<div style="font-size:34px;margin-bottom:8px">📇</div>'
+      +'<div style="font-weight:800;font-size:14px;color:#FF6B35;font-family:Nunito,sans-serif">Choose a .vcf file</div>'
+      +'<div style="font-size:12px;color:#9B9B9B;margin-top:4px">We\'ll show you a preview before adding anyone</div>'
+      +'</label>';
+  } else {
+    h+='<div style="margin-bottom:12px"><div style="font-size:11px;font-weight:700;color:#9B9B9B;text-transform:uppercase;margin-bottom:7px">Add everyone to a group (optional)</div><div style="display:flex;gap:6px;flex-wrap:wrap">'
+      +["bbq","friends","kids","family","work"].map(function(t){var m=TAG_META[t]||{label:t};return '<button onclick="window._impTag(\''+t+'\')" style="padding:5px 10px;border-radius:20px;border:1.5px solid '+(S.importTags.includes(t)?"#FF6B35":"#E0E0E0")+';background:'+(S.importTags.includes(t)?"#FF6B35":"#fff")+';color:'+(S.importTags.includes(t)?"#fff":"#9B9B9B")+';font-weight:700;font-size:12px;cursor:pointer">'+m.label+'</button>';}).join("")
+      +'</div></div>'
+      +'<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px"><div style="font-size:13px;font-weight:800">'+selCount+' of '+parsed.length+' selected</div><div style="display:flex;gap:6px"><button onclick="window._impAll(true)" style="padding:4px 9px;border-radius:8px;border:1.5px solid #E0E0E0;background:#fff;font-size:11px;cursor:pointer;font-weight:700;color:#6B6B6B">All</button><button onclick="window._impAll(false)" style="padding:4px 9px;border-radius:8px;border:1.5px solid #E0E0E0;background:#fff;font-size:11px;cursor:pointer;font-weight:700;color:#6B6B6B">None</button></div></div>'
+      +'<div style="max-height:38vh;overflow-y:auto;border:1px solid #F0E8DF;border-radius:12px;padding:6px;margin-bottom:14px">';
+    parsed.forEach(function(p,i){
+      h+='<label style="display:flex;align-items:center;gap:10px;padding:8px 10px;border-radius:8px;cursor:pointer;background:'+(p._sel?"#FFFBF8":"transparent")+'">'
+        +'<input type="checkbox" '+(p._sel?"checked":"")+' onchange="window._impTog('+i+')" style="width:16px;height:16px;cursor:pointer;accent-color:#FF6B35;flex-shrink:0">'
+        +'<div style="flex:1;min-width:0"><div style="font-weight:700;font-size:13px;color:#2C2C2C">'+escH((p.fname+" "+p.lname).trim()||"(no name)")+(p._dup?' <span style="font-size:10px;font-weight:700;color:#E67E22;background:#FDF0E1;padding:1px 6px;border-radius:10px">already added</span>':"")+'</div>'
+        +'<div style="font-size:11px;color:#9B9B9B">'+(p.phone?"+"+escH(p.phone):"no number")+(p.birthday?" · 🎂 "+escH(fmtB(p.birthday)||p.birthday):"")+'</div></div>'
+        +'</label>';
+    });
+    h+='</div>';
+  }
+  h+='<div style="display:flex;gap:10px"><button onclick="window._impClose()" style="flex:1;padding:11px;border-radius:12px;border:1.5px solid #E0E0E0;background:#fff;font-weight:700;cursor:pointer;color:#9B9B9B">'+(parsed.length?"Cancel":"Close")+'</button>'
+    +(parsed.length?'<button onclick="window._impGo()" style="flex:2;padding:11px;border-radius:12px;border:none;background:'+((selCount&&!S.importing)?"#FF6B35":"#ccc")+';color:#fff;font-weight:800;font-size:14px;cursor:'+((selCount&&!S.importing)?"pointer":"default")+';font-family:Nunito,sans-serif">'+(S.importing?"Importing…":"Import "+selCount+" 🔥")+'</button>':"")
+    +'</div></div></div>';
+  return h;
 }
 
 function apiKeyModalHTML(){
@@ -452,6 +537,7 @@ function sidebarHTML(){
     +(getApiKey()?'<div style="font-size:11px;color:#27AE60;font-weight:700;margin-bottom:6px">✅ AI connected</div>':'<div style="font-size:11px;color:#E74C3C;font-weight:700;margin-bottom:6px">⚠️ AI key not set</div>')
     +'<button onclick="window._sk()" style="width:100%;padding:7px;border-radius:8px;border:1px solid rgba(255,255,255,0.15);background:rgba(255,255,255,0.07);color:rgba(255,255,255,0.6);font-size:11px;cursor:pointer;font-weight:700">'+(getApiKey()?"🔑 Update API Key":"🔑 Set API Key")+'</button>'
     +(("Notification" in window)?'<button onclick="window._notif()" style="width:100%;padding:7px;border-radius:8px;border:1px solid rgba(255,255,255,0.15);background:rgba(255,255,255,0.07);color:rgba(255,255,255,0.6);font-size:11px;cursor:pointer;font-weight:700;margin-top:6px">'+(S.notifEnabled?"🔔 Reminders on":"🔕 Enable reminders")+'</button>':"")
+    +'<button onclick="window._oi()" style="width:100%;padding:7px;border-radius:8px;border:1px solid rgba(255,255,255,0.15);background:rgba(255,255,255,0.07);color:rgba(255,255,255,0.6);font-size:11px;cursor:pointer;font-weight:700;margin-top:6px">📥 Import contacts</button>'
     +'</div>'
     +'</div>';
 }
@@ -489,7 +575,7 @@ function render(){
       +(S.detail?detailHTML():"")
       +addModalHTML()
       +editModalHTML()
-      +apiKeyModalHTML()+groupTextModalHTML()
+      +apiKeyModalHTML()+groupTextModalHTML()+importModalHTML()
       +'</div>';
   } else {
     root.innerHTML='<div style="display:flex;height:100vh;overflow:hidden">'
@@ -504,7 +590,7 @@ function render(){
       +(S.detail?detailHTML():"")
       +addModalHTML()
       +editModalHTML()
-      +apiKeyModalHTML()+groupTextModalHTML()
+      +apiKeyModalHTML()+groupTextModalHTML()+importModalHTML()
       +'</div>';
   }
 }
@@ -567,6 +653,28 @@ window._dc=function(){
   S.detail=null;S.showEdit=false;render();
   deleteDoc(cRef(id));
 };
+window._oi=function(){S.showImport=true;S.showAdd=false;S.importParsed=[];S.importTags=[];S.importing=false;render();};
+window._impClose=function(){S.showImport=false;S.importParsed=[];S.importTags=[];S.importing=false;render();};
+window._impFile=function(input){
+  var f=input.files&&input.files[0];if(!f)return;
+  var r=new FileReader();
+  r.onload=function(){
+    var cards=parseVCards(String(r.result||""));
+    var phones={},names={};
+    S.contacts.forEach(function(c){if(c.phone)phones[c.phone.replace(/\D/g,"")]=1;names[((c.fname||"")+" "+(c.lname||"")).trim().toLowerCase()]=1;});
+    var seen={};
+    cards=cards.filter(function(p){var k=(p.fname+" "+p.lname+"|"+p.phone).toLowerCase();if(seen[k])return false;seen[k]=1;return true;});
+    cards.forEach(function(p){var dup=(p.phone&&phones[p.phone])||names[((p.fname||"")+" "+(p.lname||"")).trim().toLowerCase()];p._dup=!!dup;p._sel=!dup;});
+    S.importParsed=cards;render();
+    if(!cards.length)alert("Couldn't find any contacts in that file. Make sure it's a .vcf vCard export from Apple Contacts.");
+  };
+  r.onerror=function(){alert("Couldn't read that file.");};
+  r.readAsText(f);
+};
+window._impTog=function(i){if(S.importParsed[i]){S.importParsed[i]._sel=!S.importParsed[i]._sel;render();}};
+window._impAll=function(sel){S.importParsed.forEach(function(p){p._sel=sel;});render();};
+window._impTag=function(t){S.importTags=S.importTags.includes(t)?S.importTags.filter(function(x){return x!==t;}):[...S.importTags,t];render();};
+window._impGo=function(){doImport();};
 window._sk=function(){S.showApiKey=true;render();};
 window._sak=function(){var k=(document.getElementById("ak-input")||{}).value||"";if(k.trim()){localStorage.setItem("ic_anthropic_key",k.trim());S.showApiKey=false;render();}};
 window._oe=function(id){var c=S.contacts.find(function(x){return x.id===id;});if(!c)return;S.detail=c;S.showEdit=true;S.editColor=c.color||COLORS[0];S.editTags=[...(c.tags||[])];render();};
