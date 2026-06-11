@@ -63,7 +63,6 @@ let S = {
   noteAdding:false,giftAdding:false,giftGenerating:false,
   showEdit:false,editColor:COLORS[0],editTags:[],showApiKey:false,search:"",
   showGroupText:false,groupTextTag:"friends",groupTextDraft:null,groupTextLoading:false,
-  notifEnabled:("Notification" in window)&&Notification.permission==="granted",
   showImport:false,importParsed:[],importTags:[],importing:false,
   unsub:null,
   osEvents:null,osReminders:null,osLoading:false,osAvailable:null
@@ -118,28 +117,70 @@ function dbu(b){if(!b)return null;const p=String(b).split("-");if(p.length<3)ret
 function fmtB(b){if(!b)return null;const p=String(b).split("-");if(p.length<3)return null;return new Date(+p[0],(+p[1])-1,+p[2]).toLocaleDateString("en-US",{month:"long",day:"numeric"});}
 function fmtD(iso){return new Date(iso).toLocaleDateString("en-US",{month:"short",day:"numeric",year:"numeric"});}
 function ini(c){return((c.fname||"")[0]+(c.lname||"")[0]||"").toUpperCase();}
-function urg(days,nudge){const r=days/nudge;if(r>=1.5)return{col:"#EF4444",bg:"rgba(239,68,68,0.15)",label:"🚨 "+days+"d — overdue"};if(r>=0.8)return{col:"#F59E0B",bg:"rgba(245,158,11,0.15)",label:"⏰ "+days+"d — getting close"};return{col:"#10B981",bg:"rgba(16,185,129,0.15)",label:"✅ "+days+"d ago"};}
-function nudgeList(){return S.contacts.filter(c=>daysSince(c.lastContact)>=c.nudgeDays*0.8).sort((a,b)=>(daysSince(b.lastContact)/b.nudgeDays)-(daysSince(a.lastContact)/a.nudgeDays));}
 function bdayList(){return S.contacts.filter(c=>c.birthday).map(c=>({...c,dbu:dbu(c.birthday)})).sort((a,b)=>a.dbu-b.dbu);}
-function nudgeDue(c){return (c.nudgeDays||30)-daysSince(c.lastContact);}
-function strength(c){
-  var notes=(c.contactNotes||[]).length;
-  if(!c.lastContact&&!notes)return{label:"New",emoji:"🌱",col:"#8B5CF6",bg:"rgba(139,92,246,0.15)",pct:20};
-  var r=daysSince(c.lastContact)/(c.nudgeDays||30);
-  var boost=notes>=5?0.3:notes>=2?0.15:0;
-  var eff=r-boost;
-  if(eff<=0.5)return{label:"Strong",emoji:"🔥",col:"#10B981",bg:"rgba(16,185,129,0.15)",pct:100};
-  if(eff<=1.0)return{label:"Good",emoji:"👍",col:"#10B981",bg:"rgba(16,185,129,0.12)",pct:72};
-  if(eff<=1.5)return{label:"Fading",emoji:"😐",col:"#F59E0B",bg:"rgba(245,158,11,0.15)",pct:45};
-  return{label:"Cold",emoji:"🥶",col:"#EF4444",bg:"rgba(239,68,68,0.15)",pct:22};
-}
 function upcomingList(){
   var items=[];
   S.contacts.forEach(function(c){
-    if(c.birthday){var b=dbu(c.birthday);if(b!==null&&b<=60)items.push({type:"birthday",c:c,days:b,sort:b});}
-    var due=nudgeDue(c);if(due<=14)items.push({type:"nudge",c:c,days:due,sort:Math.max(due,-30)});
+    if(c.birthday){var b=dbu(c.birthday);if(b!==null&&b<=60)items.push({c:c,days:b});}
   });
-  return items.sort(function(a,b){return a.sort-b.sort;});
+  return items.sort(function(a,b){return a.days-b.days;});
+}
+
+// ── Auto-reminders via bridge ─────────────────────────────────
+function nthWeekdayOfMonth(year,month,weekday,nth){
+  // month: 0-indexed. weekday: 0=Sun. Returns "YYYY-MM-DD".
+  var d=new Date(year,month,1),count=0;
+  while(d.getMonth()===month){if(d.getDay()===weekday)count++;if(count===nth)return d.toISOString().slice(0,10);d.setDate(d.getDate()+1);}
+  return null;
+}
+async function addBridgeReminder(title,due,notes){
+  try{
+    await fetch("http://localhost:3333/reminders/add",{method:"POST",headers:{"Content-Type":"application/json"},
+      body:JSON.stringify({title,list:"Reminders",due,time:"",priority:"none",notes:notes||""})});
+  }catch(e){}
+}
+async function maybeScheduleReminders(){
+  if(S.osAvailable!==true)return;
+  var today=tod(),year=new Date().getFullYear();
+  var dayKey="ic_autoRem_"+today;
+  if(localStorage.getItem(dayKey))return;
+  var added=false;
+
+  // Birthdays ≤14 days away
+  S.contacts.forEach(function(c){
+    if(!c.birthday)return;
+    var days=dbu(c.birthday);
+    if(days===null||days>14||days<0)return;
+    var remKey="ic_bday_"+c.id+"_"+year;
+    if(localStorage.getItem(remKey))return;
+    var parts=c.birthday.split("-");
+    var bdateThis=year+"-"+parts[1]+"-"+parts[2];
+    if(bdateThis<today)bdateThis=(year+1)+"-"+parts[1]+"-"+parts[2];
+    var title=days===0?"🎂 Today is "+c.fname+"'s birthday!":"🎂 "+c.fname+"'s birthday in "+days+(days===1?" day":" days");
+    addBridgeReminder(title,bdateThis,c.fname+" "+c.lname);
+    localStorage.setItem(remKey,"1");
+    added=true;
+  });
+
+  // Mother's Day (2nd Sunday of May) — remind 14 days before
+  var mdDate=nthWeekdayOfMonth(year,4,0,2);
+  var mdDays=mdDate?Math.round((new Date(mdDate)-new Date(today))/86400000):999;
+  var mdKey="ic_md_"+year;
+  if(mdDays>=0&&mdDays<=14&&!localStorage.getItem(mdKey)){
+    addBridgeReminder("🌸 Mother's Day is "+(mdDays===0?"today!":"in "+mdDays+(mdDays===1?" day":" days")),mdDate,"");
+    localStorage.setItem(mdKey,"1");added=true;
+  }
+
+  // Father's Day (3rd Sunday of June) — remind 14 days before
+  var fdDate=nthWeekdayOfMonth(year,5,0,3);
+  var fdDays=fdDate?Math.round((new Date(fdDate)-new Date(today))/86400000):999;
+  var fdKey="ic_fd_"+year;
+  if(fdDays>=0&&fdDays<=14&&!localStorage.getItem(fdKey)){
+    addBridgeReminder("👨‍👧 Father's Day is "+(fdDays===0?"today!":"in "+fdDays+(fdDays===1?" day":" days")),fdDate,"");
+    localStorage.setItem(fdKey,"1");added=true;
+  }
+
+  localStorage.setItem(dayKey,"1");
 }
 function cRef(id){return doc(db,"users",FIXED_UID,"contacts",id);}
 function cCol(){return collection(db,"users",FIXED_UID,"contacts");}
@@ -158,7 +199,7 @@ async function fbUp(id,p){S.syncStatus="saving";render();try{await updateDoc(cRe
     S.syncStatus="synced";
     if(S.detail){const u=S.contacts.find(c=>c.id===S.detail.id);if(u)S.detail=u;}
     render();
-    try{maybeNotify(false);}catch(e){}
+    try{maybeScheduleReminders();}catch(e){}
   },()=>{S.syncStatus="error";render();});
   fetchOSData();
 })();
@@ -202,7 +243,7 @@ async function doImport(){
   S.importing=true;S.syncStatus="saving";render();
   try{
     await Promise.all(sel.map(function(p){
-      var c={id:uid()+Math.random().toString(36).slice(2,6),fname:p.fname,lname:p.lname,phone:p.phone||"",birthday:p.birthday||"",note:p.note||"",nudgeDays:30,color:COLORS[Math.floor(Math.random()*COLORS.length)],tags:[...S.importTags],lastContact:null,contactNotes:[],gifts:[]};
+      var c={id:uid()+Math.random().toString(36).slice(2,6),fname:p.fname,lname:p.lname,phone:p.phone||"",birthday:p.birthday||"",note:p.note||"",color:COLORS[Math.floor(Math.random()*COLORS.length)],tags:[...S.importTags],lastContact:null,contactNotes:[],gifts:[]};
       return setDoc(cRef(c.id),{...c,_ts:serverTimestamp()});
     }));
     S.syncStatus="synced";
@@ -257,20 +298,12 @@ async function genGifts(){
 
 // ── views ──────────────────────────────────────────────────
 function dashView(){
-  const nl=nudgeList(),bl=bdayList();
-  let h='<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;margin-bottom:16px">';
-  [[S.contacts.length,"👥","Contacts","var(--panel2)","var(--text)"],[nl.length,"💬","To text","rgba(239,68,68,0.12)","var(--red)"],[bl.filter(b=>b.dbu<=14).length,"🎂","Bdays soon","rgba(245,158,11,0.12)","var(--amber)"]].forEach(function(x){
-    h+='<div style="background:var(--panel);border-radius:12px;padding:14px;border:1px solid var(--border);text-align:center"><div style="font-size:22px;margin-bottom:4px">'+x[1]+'</div><div style="font-size:22px;font-weight:900;color:'+x[4]+';font-family:var(--font-display)">'+x[0]+'</div><div style="font-size:11px;color:var(--text-mid);font-weight:600;margin-top:2px">'+x[2]+'</div></div>';
+  const bl=bdayList();
+  let h='<div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:16px">';
+  [[S.contacts.length,"👥","Contacts","var(--text)"],[bl.filter(b=>b.dbu<=14).length,"🎂","Bdays soon","var(--amber)"]].forEach(function(x){
+    h+='<div style="background:var(--panel);border-radius:12px;padding:14px;border:1px solid var(--border);text-align:center"><div style="font-size:22px;margin-bottom:4px">'+x[1]+'</div><div style="font-size:22px;font-weight:900;color:'+x[3]+';font-family:var(--font-display)">'+x[0]+'</div><div style="font-size:11px;color:var(--text-mid);font-weight:600;margin-top:2px">'+x[2]+'</div></div>';
   });
   h+='</div>';
-  if(nl.length){
-    h+='<div style="background:var(--panel);border-radius:14px;border:1px solid var(--border);margin-bottom:14px;overflow:hidden"><div style="padding:12px 16px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between"><span style="font-weight:800;font-size:14px;font-family:var(--font-display)">👋 Reach out</span><button onclick="window._sv(\'nudges\')" style="padding:4px 10px;border-radius:8px;border:1.5px solid var(--border);background:#fff;font-size:12px;cursor:pointer;color:var(--text-mid)">See all</button></div>';
-    nl.slice(0,3).forEach(function(c){
-      var d=daysSince(c.lastContact),u=urg(d===999?0:d,c.nudgeDays);
-      h+='<div style="display:flex;align-items:center;gap:12px;padding:10px 16px;border-bottom:1px solid var(--border)"><div style="width:38px;height:38px;border-radius:50%;background:'+c.color+'22;color:'+c.color+';display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:900;flex-shrink:0">'+ini(c)+'</div><div style="flex:1"><div style="font-weight:800;font-size:14px;font-family:var(--font-display)">'+c.fname+' '+c.lname+'</div><span style="font-size:11px;font-weight:700;padding:2px 7px;border-radius:20px;background:'+u.bg+';color:'+u.col+'">'+u.label+'</span></div><button onclick="window._od(\''+c.id+'\')" style="padding:6px 12px;border-radius:8px;border:none;background:var(--green);color:#fff;font-weight:800;font-size:12px;cursor:pointer">Text 💬</button></div>';
-    });
-    h+='</div>';
-  }
   if(bl.length){
     h+='<div style="background:var(--panel);border-radius:14px;border:1px solid var(--border);overflow:hidden;margin-bottom:14px"><div style="padding:12px 16px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between"><span style="font-weight:800;font-size:14px;font-family:var(--font-display)">🎂 Birthdays</span><button onclick="window._sv(\'birthdays\')" style="padding:4px 10px;border-radius:8px;border:1.5px solid var(--border);background:#fff;font-size:12px;cursor:pointer;color:var(--text-mid)">See all</button></div>';
     bl.slice(0,3).forEach(function(c){
@@ -350,11 +383,11 @@ function contactsView(){
   if(!list.length)return h+'<div style="text-align:center;padding:40px;color:var(--text-mid)"><div style="font-size:40px;margin-bottom:12px">👥</div><p>'+(S.search?"No matches":"No contacts here yet!")+'</p></div>';
   h+='<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:12px">';
   list.forEach(function(c){
-    var d=daysSince(c.lastContact),bd=dbu(c.birthday),u=urg(d===999?0:d,c.nudgeDays),st=strength(c);
-    h+='<div style="background:#fff;border-radius:14px;padding:14px;border:1px solid var(--border);cursor:pointer;position:relative;overflow:hidden"><div style="position:absolute;top:0;left:0;right:0;height:4px;background:'+c.color+'"></div><div title="'+st.label+' connection" style="position:absolute;top:10px;right:12px;font-size:14px">'+st.emoji+'</div>'
+    var d=daysSince(c.lastContact),bd=dbu(c.birthday);
+    h+='<div style="background:#fff;border-radius:14px;padding:14px;border:1px solid var(--border);cursor:pointer;position:relative;overflow:hidden"><div style="position:absolute;top:0;left:0;right:0;height:4px;background:'+c.color+'"></div>'
       +'<div onclick="window._od(\''+c.id+'\')" style="display:block"><div style="width:44px;height:44px;border-radius:50%;background:'+c.color+'22;color:'+c.color+';display:flex;align-items:center;justify-content:center;font-size:15px;font-weight:900;margin:6px 0 8px">'+ini(c)+'</div><div style="font-weight:800;font-size:14px;color:var(--text);font-family:var(--font-display)">'+c.fname+' '+c.lname+'</div><div style="font-size:11px;color:var(--text-mid);margin-top:2px">'+(c.note?c.note.slice(0,35)+"…":"")+'</div></div>'
       +'<div style="display:flex;align-items:center;gap:4px;flex-wrap:wrap;margin-top:8px">'+(c.tags||[]).slice(0,2).map(tagPill).join("")+'</div>'
-      +'<div style="display:flex;align-items:center;justify-content:space-between;margin-top:8px;padding-top:8px;border-top:1px solid var(--border)"><span style="font-size:11px;font-weight:700;color:'+u.col+'">'+(d===999?"never":d+"d")+'</span><button onclick="event.stopPropagation();window._ql(\''+c.id+'\')" title="Mark contacted" style="width:26px;height:26px;border-radius:50%;border:none;background:#34C75922;color:#34C759;font-size:14px;cursor:pointer;display:flex;align-items:center;justify-content:center;font-weight:900">✓</button></div>'
+      +'<div style="display:flex;align-items:center;justify-content:space-between;margin-top:8px;padding-top:8px;border-top:1px solid var(--border)"><span style="font-size:11px;color:var(--text-mid)">'+(d===999?"never contacted":d+"d ago")+'</span><button onclick="event.stopPropagation();window._ql(\''+c.id+'\')" title="Mark contacted" style="width:26px;height:26px;border-radius:50%;border:none;background:#34C75922;color:#34C759;font-size:14px;cursor:pointer;display:flex;align-items:center;justify-content:center;font-weight:900">✓</button></div>'
       +(bd!==null&&bd<=14?'<div style="margin-top:6px;font-size:11px;font-weight:700;color:var(--accent)">🎂 '+(bd===0?"Today!":"In "+bd+"d")+'</div>':"")
       +'</div>';
   });
@@ -373,44 +406,18 @@ function birthdaysView(){
   return h;
 }
 
-function nudgesView(){
-  var nl=nudgeList();
-  if(!nl.length)return '<div style="text-align:center;padding:40px;color:var(--text-mid)"><div style="font-size:40px">🎉</div><p style="margin-top:12px">All caught up! Your circle feels the love.</p></div>';
-  var h='<div style="display:flex;flex-direction:column;gap:10px">';
-  nl.forEach(function(c){
-    var d=daysSince(c.lastContact),u=urg(d===999?0:d,c.nudgeDays);
-    h+='<div style="background:var(--panel);border-radius:12px;padding:12px 14px;border:1px solid var(--border);display:flex;align-items:center;gap:12px"><div style="width:40px;height:40px;border-radius:50%;background:'+c.color+'22;color:'+c.color+';display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:900;flex-shrink:0">'+ini(c)+'</div><div style="flex:1;min-width:0"><div style="font-weight:800;font-size:14px;font-family:var(--font-display)">'+c.fname+' '+c.lname+'</div><span style="font-size:11px;font-weight:700;padding:2px 7px;border-radius:20px;background:'+u.bg+';color:'+u.col+'">'+u.label+'</span></div><button onclick="window._od(\''+c.id+'\')" style="padding:7px 12px;border-radius:8px;border:none;background:var(--green);color:#fff;font-weight:800;font-size:12px;cursor:pointer;flex-shrink:0">Draft 💬</button></div>';
-  });
-  h+='</div>';
-  return h;
-}
 
 function upcomingView(){
   var items=upcomingList();
-  var h="";
-  if(("Notification" in window)&&!S.notifEnabled){
-    h+='<div style="background:var(--panel2);border:1.5px solid var(--border);border-radius:12px;padding:12px 14px;display:flex;align-items:center;gap:10px;margin-bottom:12px"><div style="font-size:20px">🔔</div><div style="flex:1;font-size:12px;color:var(--text-mid);line-height:1.4">Get a nudge when someone\'s birthday hits or you\'re overdue to reach out.</div><button onclick="window._notif()" style="padding:7px 12px;border-radius:10px;border:none;background:var(--accent);color:var(--bg);font-weight:800;font-size:12px;cursor:pointer;flex-shrink:0">Turn on</button></div>';
-  }
-  if(!items.length)return h+'<div style="text-align:center;padding:40px;color:var(--text-mid)"><div style="font-size:40px">📅</div><p style="margin-top:12px">Nothing coming up in the next while. You\'re all caught up!</p></div>';
-  h+='<div style="display:flex;flex-direction:column;gap:8px">';
+  if(!items.length)return '<div style="text-align:center;padding:40px;color:var(--text-mid)"><div style="font-size:40px">📅</div><p style="margin-top:12px">No birthdays coming up in the next 60 days.</p></div>';
+  var h='<div style="display:flex;flex-direction:column;gap:8px">';
   items.forEach(function(it){
-    var c=it.c,isB=it.type==="birthday",when,col,label,action;
-    if(isB){
-      when=it.days===0?"🎉 Today!":it.days===1?"Tomorrow":"in "+it.days+"d";
-      col=it.days===0?"var(--red)":it.days<=7?"var(--amber)":"var(--accent)";
-      label="🎂 Birthday · "+fmtB(c.birthday);
-      action="window._ob('"+c.id+"')";
-    } else {
-      if(!c.lastContact){when="Say hi 👋";col="#E74C3C";}
-      else if(it.days<0){when=Math.abs(it.days)+"d overdue";col="#E74C3C";}
-      else if(it.days===0){when="Due today";col="#F39C12";}
-      else{when="in "+it.days+"d";col=it.days<=3?"#F39C12":"#27AE60";}
-      label="💬 Time to check in";
-      action="window._od('"+c.id+"')";
-    }
-    h+='<div onclick="'+action+'" style="background:var(--panel);border-radius:12px;padding:12px 14px;border:1px solid var(--border);display:flex;align-items:center;gap:12px;cursor:pointer">'
+    var c=it.c,when,col;
+    when=it.days===0?"🎉 Today!":it.days===1?"Tomorrow":"in "+it.days+"d";
+    col=it.days===0?"var(--red)":it.days<=7?"var(--amber)":"var(--accent)";
+    h+='<div onclick="window._ob(\''+c.id+'\')" style="background:var(--panel);border-radius:12px;padding:12px 14px;border:1px solid var(--border);display:flex;align-items:center;gap:12px;cursor:pointer">'
       +'<div style="width:40px;height:40px;border-radius:50%;background:'+c.color+'22;color:'+c.color+';display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:900;flex-shrink:0">'+ini(c)+'</div>'
-      +'<div style="flex:1;min-width:0"><div style="font-weight:800;font-size:14px;font-family:var(--font-display)">'+c.fname+' '+c.lname+'</div><div style="font-size:12px;color:var(--text-mid)">'+label+'</div></div>'
+      +'<div style="flex:1;min-width:0"><div style="font-weight:800;font-size:14px;font-family:var(--font-display)">'+c.fname+' '+c.lname+'</div><div style="font-size:12px;color:var(--text-mid)">🎂 Birthday · '+fmtB(c.birthday)+'</div></div>'
       +'<div style="font-family:var(--font-display);font-size:13px;font-weight:800;color:'+col+';flex-shrink:0;text-align:right">'+when+'</div>'
       +'</div>';
   });
@@ -420,7 +427,7 @@ function upcomingView(){
 
 function detailHTML(){
   var c=S.detail;if(!c)return "";
-  var d=daysSince(c.lastContact),bd=dbu(c.birthday),isBday=bd!==null&&bd<=14,u=urg(d===999?0:d,c.nudgeDays),notes=c.contactNotes||[],gifts=c.gifts||[],st=strength(c);
+  var d=daysSince(c.lastContact),bd=dbu(c.birthday),isBday=bd!==null&&bd<=14,notes=c.contactNotes||[],gifts=c.gifts||[];
 
   // draft
   var draft='<div><div style="font-size:10px;font-weight:800;color:var(--text-mid);text-transform:uppercase;letter-spacing:1.5px;margin-bottom:8px">Draft a Text</div>';
@@ -464,9 +471,7 @@ function detailHTML(){
   return '<div onclick="if(event.target===this)window._cl()" style="position:fixed;inset:0;background:rgba(0,0,0,0.45);z-index:200;display:flex;align-items:center;justify-content:flex-end"><div style="width:min(420px,100vw);height:100%;background:#fff;overflow-y:auto;padding:22px;display:flex;flex-direction:column;gap:16px;font-family:var(--font-body);animation:slideIn 0.2s ease">'
     +'<div style="display:flex;align-items:flex-start;gap:12px"><div style="width:54px;height:54px;border-radius:50%;background:'+c.color+'22;color:'+c.color+';display:flex;align-items:center;justify-content:center;font-size:18px;font-weight:900;flex-shrink:0">'+ini(c)+'</div><div style="flex:1"><div style="font-size:20px;font-weight:900;color:var(--text);font-family:var(--font-display)">'+c.fname+' '+c.lname+'</div><div style="display:flex;gap:4px;flex-wrap:wrap;margin-top:5px">'+(c.tags||[]).map(tagPill).join("")+'</div></div><button onclick="window._cl()" style="background:#F5F5F5;border:none;border-radius:50%;width:28px;height:28px;cursor:pointer;font-size:13px;flex-shrink:0">✕</button></div>'
     +(isBday?'<div style="background:rgba(245,158,11,0.1);border:1.5px solid rgba(245,158,11,0.3);border-radius:10px;padding:10px 12px;font-weight:700;font-size:13px;color:var(--amber)">🎂 '+(bd===0?"It\'s their birthday TODAY! 🎉":"Birthday in "+bd+(bd===1?" day":"days")+"!")+" — "+fmtB(c.birthday)+"</div>":"")
-    +'<div>'+(c.phone?'<div style="display:flex;align-items:center;gap:8px;padding:7px 0;border-bottom:1px solid var(--border);font-size:13px;color:#555"><span>📞</span>'+fmtPhone(c.phone)+'</div>':"")+'<div style="display:flex;align-items:flex-start;gap:8px;padding:7px 0;border-bottom:1px solid var(--border);font-size:13px;color:#555"><span>📝</span><span>'+(c.note||"No note")+'</span></div><div style="display:flex;gap:8px;padding:7px 0;border-bottom:1px solid var(--border);font-size:13px;color:#555"><span>⏱️</span>Last contact: <b>'+(d===999?"Never":d+"d ago")+'</b></div><div style="display:flex;gap:8px;padding:7px 0;font-size:13px;color:#555"><span>🔔</span>Nudge every '+c.nudgeDays+' days</div></div>'
-    +'<div style="background:'+u.bg+';border-radius:10px;padding:9px 12px;font-size:13px;font-weight:700;color:'+u.col+'">'+u.label+'</div>'
-    +'<div style="background:'+st.bg+';border-radius:10px;padding:10px 12px"><div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px"><span style="font-size:12px;font-weight:800;color:'+st.col+'">'+st.emoji+' '+st.label+' connection</span><span style="font-size:11px;color:var(--text-mid)">'+notes.length+' note'+(notes.length===1?"":"s")+'</span></div><div style="height:6px;background:#fff;border-radius:10px;overflow:hidden"><div style="height:100%;width:'+st.pct+'%;background:'+st.col+';border-radius:10px"></div></div></div>'
+    +'<div>'+(c.phone?'<div style="display:flex;align-items:center;gap:8px;padding:7px 0;border-bottom:1px solid var(--border);font-size:13px;color:#555"><span>📞</span>'+fmtPhone(c.phone)+'</div>':"")+'<div style="display:flex;align-items:flex-start;gap:8px;padding:7px 0;border-bottom:1px solid var(--border);font-size:13px;color:#555"><span>📝</span><span>'+(c.note||"No note")+'</span></div><div style="display:flex;gap:8px;padding:7px 0;font-size:13px;color:#555"><span>⏱️</span>Last contact: <b>'+(d===999?"Never":d+"d ago")+'</b></div></div>'
     +draft+ns+gs
     +'<div style="display:flex;gap:10px;padding-top:8px"><button onclick="window._mc(\''+c.id+'\')" style="flex:2;padding:11px;border-radius:12px;border:none;background:var(--accent);color:var(--bg);font-weight:800;font-size:14px;cursor:pointer;font-family:var(--font-display)">✅ Mark Contacted</button><button onclick="window._oe(\''+c.id+'\')" style="flex:1;padding:11px;border-radius:12px;border:1.5px solid var(--border);background:#fff;font-weight:700;font-size:13px;cursor:pointer;color:var(--text-mid)">✏️ Edit</button></div>'
     +'</div></div>';
@@ -486,9 +491,7 @@ function addModalHTML(){
     +'<div><label style="font-size:11px;font-weight:700;color:var(--text-mid);text-transform:uppercase;display:block;margin-bottom:4px">Phone</label><input id="ac-ph" style="'+inp+'" placeholder="+1 555-0000"></div>'
     +'<div><label style="font-size:11px;font-weight:700;color:var(--text-mid);text-transform:uppercase;display:block;margin-bottom:4px">Birthday</label><input id="ac-bd" type="date" style="'+inp+'"></div></div>'
     +'<div style="margin-bottom:10px"><label style="font-size:11px;font-weight:700;color:var(--text-mid);text-transform:uppercase;display:block;margin-bottom:4px">How do you know them?</label><input id="ac-nt" style="'+inp+'" placeholder="Met at Tim\'s BBQ…"></div>'
-    +'<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px">'
-    +'<div><label style="font-size:11px;font-weight:700;color:var(--text-mid);text-transform:uppercase;display:block;margin-bottom:4px">Nudge every (days)</label><input id="ac-nd" type="number" value="30" style="'+inp+'"></div>'
-    +'<div><label style="font-size:11px;font-weight:700;color:var(--text-mid);text-transform:uppercase;display:block;margin-bottom:4px">Color</label><div style="display:flex;gap:7px;margin-top:4px">'
+    +'<div style="margin-bottom:10px"><label style="font-size:11px;font-weight:700;color:var(--text-mid);text-transform:uppercase;display:block;margin-bottom:4px">Color</label><div style="display:flex;gap:7px;margin-top:4px">'
     +COLORS.map(function(col){return '<div onclick="S.addColor=\''+col+'\';render()" style="width:24px;height:24px;border-radius:50%;background:'+col+';cursor:pointer;border:'+(S.addColor===col?"3px solid var(--text)":"3px solid transparent")+'"></div>';}).join("")
     +'</div></div></div>'
     +'<div style="margin-bottom:16px"><label style="font-size:11px;font-weight:700;color:var(--text-mid);text-transform:uppercase;display:block;margin-bottom:7px">Groups</label><div style="display:flex;gap:6px;flex-wrap:wrap">'
@@ -595,7 +598,6 @@ function editModalHTML(){
     +'<div><label style="font-size:11px;font-weight:700;color:var(--text-mid);text-transform:uppercase;display:block;margin-bottom:4px">Phone</label><input id="ec-ph" value="'+escH(c.phone||"")+'" style="'+inp+'"></div>'
     +'<div><label style="font-size:11px;font-weight:700;color:var(--text-mid);text-transform:uppercase;display:block;margin-bottom:4px">Birthday</label><input id="ec-bd" type="date" value="'+(c.birthday||"")+'" style="'+inp+'"></div></div>'
     +'<div style="margin-bottom:10px"><label style="font-size:11px;font-weight:700;color:var(--text-mid);text-transform:uppercase;display:block;margin-bottom:4px">How do you know them?</label><input id="ec-nt" value="'+escH(c.note||"")+'" style="'+inp+'"></div>'
-    +'<div style="margin-bottom:10px"><label style="font-size:11px;font-weight:700;color:var(--text-mid);text-transform:uppercase;display:block;margin-bottom:4px">Nudge every (days)</label><input id="ec-nd" type="number" value="'+(c.nudgeDays||30)+'" style="'+inp+'"></div>'
     +'<div style="margin-bottom:10px"><label style="font-size:11px;font-weight:700;color:var(--text-mid);text-transform:uppercase;display:block;margin-bottom:4px">Color</label><div style="display:flex;gap:7px;margin-top:4px">'
     +COLORS.map(function(col){return '<div onclick="S.editColor=\''+col+'\';render()" style="width:28px;height:28px;border-radius:50%;background:'+col+';cursor:pointer;border:'+(S.editColor===col?"3px solid var(--text)":"3px solid transparent")+'"></div>';}).join("")
     +'</div></div>'
@@ -609,7 +611,6 @@ function editModalHTML(){
 }
 
 function sidebarHTML(){
-  var nl=nudgeList().length;
   function ni(v,icon,label,badge){
     var a=S.view===v&&S.group==="all";
     return '<div onclick="window._sv(\''+v+'\')" style="display:flex;align-items:center;gap:10px;padding:9px 16px;cursor:pointer;font-size:13px;font-weight:600;color:'+(a?"var(--accent)":"var(--text-mid)")+';background:'+(a?"rgba(0,212,255,0.08)":"transparent")+';border-left:3px solid '+(a?"var(--accent)":"transparent")+'"><span style="font-size:15px;width:20px;text-align:center">'+icon+'</span>'+label+(badge?'<span style="margin-left:auto;background:var(--accent);color:var(--bg);font-size:10px;font-weight:800;padding:1px 6px;border-radius:20px">'+badge+'</span>':"")+'</div>';
@@ -622,14 +623,12 @@ function sidebarHTML(){
     +ni("contacts","👥","Contacts")
     +ni("upcoming","📅","Upcoming")
     +ni("birthdays","🎂","Birthdays")
-    +ni("nudges","💬","Nudges",nl||"")
     +'<div style="padding:10px 12px 4px;font-size:10px;font-weight:700;color:var(--text-dim);text-transform:uppercase;letter-spacing:1.5px;margin-top:8px">Groups</div>'
     +GROUPS.map(function(g){var a=S.view==="contacts"&&S.group===g.id;return '<div onclick="window._sg2(\''+g.id+'\')" style="display:flex;align-items:center;gap:10px;padding:9px 16px;cursor:pointer;font-size:13px;font-weight:600;color:'+(a?"var(--accent)":"var(--text-mid)")+';background:'+(a?"rgba(0,212,255,0.08)":"transparent")+';border-left:3px solid '+(a?"var(--accent)":"transparent")+'"><span style="font-size:15px;width:20px;text-align:center">'+g.icon+'</span>'+g.label+'</div>';}).join("")
     +'<div style="flex:1"></div>'
     +'<div style="padding:12px 16px;border-top:1px solid var(--border)">'
     +(getApiKey()?'<div style="font-size:11px;color:var(--green);font-weight:700;margin-bottom:6px">✅ AI connected</div>':'<div style="font-size:11px;color:var(--red);font-weight:700;margin-bottom:6px">⚠️ AI key not set</div>')
     +'<button onclick="window._sk()" style="width:100%;padding:7px;border-radius:8px;border:1px solid var(--border);background:var(--panel2);color:var(--text-mid);font-size:11px;cursor:pointer;font-weight:700">'+(getApiKey()?"🔑 Update API Key":"🔑 Set API Key")+'</button>'
-    +(("Notification" in window)?'<button onclick="window._notif()" style="width:100%;padding:7px;border-radius:8px;border:1px solid var(--border);background:var(--panel2);color:var(--text-mid);font-size:11px;cursor:pointer;font-weight:700;margin-top:6px">'+(S.notifEnabled?"🔔 Reminders on":"🔕 Enable reminders")+'</button>':"")
     +'<button onclick="window._oi()" style="width:100%;padding:7px;border-radius:8px;border:1px solid var(--border);background:var(--panel2);color:var(--text-mid);font-size:11px;cursor:pointer;font-weight:700;margin-top:6px">📥 Import contacts</button>'
     +'</div>'
     +'</div>';
@@ -638,15 +637,13 @@ function sidebarHTML(){
 // ── render ──────────────────────────────────────────────────
 function render(){
   var root=document.getElementById("root");
-  var nl=nudgeList().length;
   var viewHTML="";
   if(S.view==="dashboard")viewHTML=dashView();
   else if(S.view==="contacts")viewHTML=contactsView();
   else if(S.view==="birthdays")viewHTML=birthdaysView();
-  else if(S.view==="nudges")viewHTML=nudgesView();
   else if(S.view==="upcoming")viewHTML=upcomingView();
 
-  var titles={dashboard:"Dashboard",contacts:S.group==="all"?"Contacts":GROUPS.find(function(g){return g.id===S.group;})||{label:"Contacts"},birthdays:"Birthdays 🎂",nudges:"Nudges 💬",upcoming:"Upcoming 📅"};
+  var titles={dashboard:"Dashboard",contacts:S.group==="all"?"Contacts":GROUPS.find(function(g){return g.id===S.group;})||{label:"Contacts"},birthdays:"Birthdays 🎂",upcoming:"Upcoming 📅"};
   var title=typeof titles[S.view]==="string"?titles[S.view]:(titles[S.view].label||"Contacts");
 
   var isMobile=window.innerWidth<768;
@@ -659,10 +656,10 @@ function render(){
       +'</div>'
       +'<div style="flex:1;overflow-y:auto;padding:14px">'+viewHTML+'</div>'
       +'<div style="display:flex;background:var(--panel);border-top:1px solid var(--border);flex-shrink:0;padding-bottom:env(safe-area-inset-bottom)">'
-      +[["dashboard","🏠","Home"],["contacts","👥","People"],["upcoming","📅","Soon"],["birthdays","🎂","Bdays"],["nudges","💬","Nudges"]].map(function(x){
+      +[["dashboard","🏠","Home"],["contacts","👥","People"],["upcoming","📅","Soon"],["birthdays","🎂","Bdays"]].map(function(x){
         var v=x[0],icon=x[1],label=x[2];
         var active=S.view===v;
-        return '<div onclick="window._sv(\''+v+'\')" style="flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:10px 4px 8px;cursor:pointer;position:relative;color:'+(active?"var(--accent)":"var(--text-mid)")+'"><span style="font-size:22px">'+icon+'</span><span style="font-size:10px;font-weight:700;margin-top:3px;font-family:var(--font-display)">'+label+'</span>'+(v==="nudges"&&nl>0?'<span style="position:absolute;top:6px;right:calc(50% - 20px);background:var(--accent);color:var(--bg);font-size:9px;font-weight:800;padding:1px 5px;border-radius:20px">'+nl+'</span>':"")+'</div>';
+        return '<div onclick="window._sv(\''+v+'\')" style="flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:10px 4px 8px;cursor:pointer;color:'+(active?"var(--accent)":"var(--text-mid)")+'"><span style="font-size:22px">'+icon+'</span><span style="font-size:10px;font-weight:700;margin-top:3px;font-family:var(--font-display)">'+label+'</span></div>';
       }).join("")
       +'</div>'
       +(S.detail?detailHTML():"")
@@ -698,7 +695,6 @@ window._od=function(id){S.detail=S.contacts.find(function(c){return c.id===id;})
 window._cl=function(){S.detail=null;render();};
 window._oa=function(){S.showAdd=true;S.addColor=COLORS[0];S.addTags=[];render();};
 window._mc=function(id){markContacted(id);};
-window._en=function(id){var c=S.contacts.find(function(x){return x.id===id;});var v=prompt("Nudge every __ days for "+c.fname+":",c.nudgeDays);if(v&&!isNaN(v))fbUp(id,{nudgeDays:parseInt(v)});};
 window._gd=function(t){genDraft(t);};
 window._cd=function(){S.draftText=null;render();};
 window._cp=function(){if(S.draftText){navigator.clipboard.writeText(S.draftText);var b=document.getElementById("cpbtn");if(b){b.textContent="✅ Copied!";setTimeout(function(){if(b)b.textContent="📋 Copy";},2000);}}};
@@ -722,23 +718,6 @@ window._gtd=async function(){
 };
 window._cpgt=function(){if(S.groupTextDraft){navigator.clipboard.writeText(S.groupTextDraft);var b=document.getElementById("cpgt");if(b){b.textContent="✅ Copied!";setTimeout(function(){if(b)b.textContent="📋 Copy";},2000);}}};
 window._bbq=function(){window._gt("bbq");};
-window._notif=function(){
-  if(!("Notification" in window)){alert("This browser doesn't support notifications.");return;}
-  Notification.requestPermission().then(function(p){S.notifEnabled=(p==="granted");render();if(p==="granted")maybeNotify(true);else if(p==="denied")alert("Notifications are blocked. Enable them in your browser settings for this site.");});
-};
-function maybeNotify(force){
-  if(!("Notification" in window)||Notification.permission!=="granted")return;
-  var today=tod();
-  if(!force&&localStorage.getItem("ic_notif_day")===today)return;
-  var bdayToday=S.contacts.filter(function(c){return c.birthday&&dbu(c.birthday)===0;});
-  var overdue=S.contacts.filter(function(c){return nudgeDue(c)<0;});
-  if(!bdayToday.length&&!overdue.length){if(force)alert("You're all caught up — no reminders right now. We'll nudge you when someone's due. 🎉");return;}
-  localStorage.setItem("ic_notif_day",today);
-  var parts=[];
-  if(bdayToday.length)parts.push("🎂 "+bdayToday.map(function(c){return c.fname;}).join(", ")+(bdayToday.length>1?"'s birthdays are":"'s birthday is")+" today");
-  if(overdue.length)parts.push("👋 "+overdue.length+" "+(overdue.length>1?"people are":"person is")+" overdue for a hello");
-  try{new Notification("Inner Circle 🔥",{body:parts.join("\n")});}catch(e){}
-}
 window._dc=function(){
   if(!S.detail)return;
   var name=S.detail.fname+" "+S.detail.lname;
@@ -777,7 +756,7 @@ window._sve=function(){
   if(!S.detail)return;
   var fn=(document.getElementById("ec-fn")||{}).value||"";
   if(!fn.trim())return;
-  var patch={fname:fn.trim(),lname:((document.getElementById("ec-ln")||{}).value||"").trim(),phone:((document.getElementById("ec-ph")||{}).value||"").trim(),birthday:(document.getElementById("ec-bd")||{}).value||"",note:((document.getElementById("ec-nt")||{}).value||"").trim(),nudgeDays:parseInt((document.getElementById("ec-nd")||{}).value)||30,color:S.editColor,tags:[...S.editTags]};
+  var patch={fname:fn.trim(),lname:((document.getElementById("ec-ln")||{}).value||"").trim(),phone:((document.getElementById("ec-ph")||{}).value||"").trim(),birthday:(document.getElementById("ec-bd")||{}).value||"",note:((document.getElementById("ec-nt")||{}).value||"").trim(),color:S.editColor,tags:[...S.editTags]};
   var id=S.detail.id;
   S.showEdit=false;render();
   fbUp(id,patch);
@@ -785,7 +764,7 @@ window._sve=function(){
 window._sc=function(){
   var fn=(document.getElementById("ac-fn")||{}).value||"";
   if(!fn.trim())return;
-  var c={id:uid(),fname:fn.trim(),lname:((document.getElementById("ac-ln")||{}).value||"").trim(),phone:((document.getElementById("ac-ph")||{}).value||"").trim(),birthday:(document.getElementById("ac-bd")||{}).value||"",note:((document.getElementById("ac-nt")||{}).value||"").trim(),nudgeDays:parseInt((document.getElementById("ac-nd")||{}).value)||30,color:S.addColor,tags:[...S.addTags],lastContact:null,contactNotes:[],gifts:[]};
+  var c={id:uid(),fname:fn.trim(),lname:((document.getElementById("ac-ln")||{}).value||"").trim(),phone:((document.getElementById("ac-ph")||{}).value||"").trim(),birthday:(document.getElementById("ac-bd")||{}).value||"",note:((document.getElementById("ac-nt")||{}).value||"").trim(),color:S.addColor,tags:[...S.addTags],lastContact:null,contactNotes:[],gifts:[]};
   S.showAdd=false;S.addTags=[];render();
   fbSet(c);
 };
