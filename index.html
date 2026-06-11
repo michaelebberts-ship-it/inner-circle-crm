@@ -5,20 +5,34 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
 <meta name="apple-mobile-web-app-capable" content="yes"/>
 <meta name="apple-mobile-web-app-title" content="Inner Circle"/>
-<meta name="theme-color" content="#1E1E2E"/>
-<title>Inner Circle CRM 🔥</title>
-<link href="https://fonts.googleapis.com/css2?family=Nunito:wght@400;600;700;800;900&family=Nunito+Sans:wght@400;600;700&display=swap" rel="stylesheet"/>
+<meta name="theme-color" content="#0A0E1A"/>
+<title>Inner Circle CRM</title>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;500;600;700&family=Inter:wght@300;400;500;600&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet"/>
 <style>
+:root{
+  --bg:#0A0E1A;--panel:#111827;--panel2:#161F2E;--panel3:#1A2535;
+  --border:#1E2D40;--border2:#243447;
+  --accent:#00D4FF;--accent-dim:rgba(0,212,255,0.1);
+  --green:#10B981;--green-dim:rgba(16,185,129,0.12);
+  --red:#EF4444;--red-dim:rgba(239,68,68,0.12);
+  --amber:#F59E0B;--amber-dim:rgba(245,158,11,0.12);
+  --purple:#8B5CF6;
+  --text:#E8EFF7;--text-mid:#8B9DB5;--text-dim:#3D5068;
+  --radius:10px;--radius-sm:6px;
+  --font-display:'Space Grotesk',sans-serif;
+  --font-body:'Inter',sans-serif;
+  --font-mono:'JetBrains Mono',monospace;
+}
 *{box-sizing:border-box;margin:0;padding:0}
-html,body,#root{height:100%;font-family:'Nunito Sans',sans-serif}
+html,body,#root{height:100%;font-family:var(--font-body);background:var(--bg);color:var(--text)}
 @keyframes spin{to{transform:rotate(360deg)}}
 @keyframes slideIn{from{transform:translateX(100%)}to{transform:translateX(0)}}
 ::-webkit-scrollbar{width:4px}
-::-webkit-scrollbar-thumb{background:#E0D5CC;border-radius:10px}
+::-webkit-scrollbar-thumb{background:var(--border2);border-radius:10px}
 </style>
 </head>
 <body>
-<div id="root"><div style="height:100vh;display:flex;align-items:center;justify-content:center;font-size:18px;color:#9B9B9B;font-family:'Nunito',sans-serif">🔥 Loading…</div></div>
+<div id="root"><div style="height:100vh;display:flex;align-items:center;justify-content:center;font-size:18px;color:var(--text-mid);font-family:var(--font-display)">🔥 Loading…</div></div>
 <script type="module">
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
 import { getFirestore,collection,doc,onSnapshot,setDoc,updateDoc,deleteDoc,query,serverTimestamp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
@@ -35,8 +49,8 @@ const db = getFirestore(app);
 const FIXED_UID = "owner-inner-circle-crm";
 
 const GROUPS = [{id:"all",label:"Everyone",icon:"🌐"},{id:"bbq",label:"BBQ Team",icon:"🍖"},{id:"friends",label:"Close Friends",icon:"🍺"},{id:"kids",label:"Kids' Parents",icon:"⚽"},{id:"family",label:"Family",icon:"🏡"},{id:"work",label:"Work",icon:"💼"}];
-const TAG_META = {bbq:{label:"🍖 BBQ",bg:"#FFF3E0",col:"#E65100"},friends:{label:"🍺 Friends",bg:"#E8F5E9",col:"#2E7D32"},kids:{label:"⚽ Kids",bg:"#E3F2FD",col:"#1565C0"},family:{label:"🏡 Family",bg:"#FCE4EC",col:"#880E4F"},work:{label:"💼 Work",bg:"#F3E5F5",col:"#6A1B9A"}};
-const COLORS = ["#FF6B35","#3498DB","#2ECC71","#9B59B6","#E91E63","#F39C12","#1ABC9C"];
+const TAG_META = {bbq:{label:"🍖 BBQ",bg:"rgba(245,158,11,0.15)",col:"#F59E0B"},friends:{label:"🍺 Friends",bg:"rgba(16,185,129,0.15)",col:"#10B981"},kids:{label:"⚽ Kids",bg:"rgba(0,212,255,0.15)",col:"#00D4FF"},family:{label:"🏡 Family",bg:"rgba(239,68,68,0.15)",col:"#EF4444"},work:{label:"💼 Work",bg:"rgba(139,92,246,0.15)",col:"#8B5CF6"}};
+const COLORS = ["#00D4FF","#10B981","#F59E0B","#8B5CF6","#EF4444","#00D4FF","#10B981"];
 const OCCASIONS = ["🎂 Birthday","🎄 Christmas","🎁 Holiday","👨‍👧 Father's Day","👩‍👧 Mother's Day","🎓 Graduation","🏠 Housewarming","💍 Wedding","⭐ Just because"];
 
 let S = {
@@ -51,8 +65,47 @@ let S = {
   showGroupText:false,groupTextTag:"friends",groupTextDraft:null,groupTextLoading:false,
   notifEnabled:("Notification" in window)&&Notification.permission==="granted",
   showImport:false,importParsed:[],importTags:[],importing:false,
-  unsub:null
+  unsub:null,
+  osEvents:null,osReminders:null,osLoading:false,osAvailable:null
 };
+
+// Apple Calendar + Reminders via local bridge (serve_os.py)
+async function fetchOSData(){
+  if(S.osLoading)return;
+  S.osLoading=true;render();
+  try{
+    const [calRes,remRes]=await Promise.all([
+      fetch("http://localhost:3333/calendar").then(r=>r.json()).catch(()=>null),
+      fetch("http://localhost:3333/reminders").then(r=>r.json()).catch(()=>null)
+    ]);
+    if(!calRes&&!remRes){S.osAvailable=false;}
+    else{
+      S.osAvailable=true;
+      S.osEvents=(calRes&&calRes.ok)?calRes.events:[];
+      S.osReminders=(remRes&&remRes.ok)?remRes.reminders:[];
+    }
+  }catch(e){S.osAvailable=false;}
+  S.osLoading=false;render();
+}
+
+function fmtOSDate(iso){
+  if(!iso)return"";
+  const d=new Date(iso),n=new Date();
+  const diff=Math.floor((new Date(d.getFullYear(),d.getMonth(),d.getDate())-new Date(n.getFullYear(),n.getMonth(),n.getDate()))/86400000);
+  const time=d.toLocaleTimeString("en-US",{hour:"numeric",minute:"2-digit"});
+  if(diff===0)return"Today "+time;
+  if(diff===1)return"Tomorrow "+time;
+  return d.toLocaleDateString("en-US",{month:"short",day:"numeric"})+" "+time;
+}
+
+function fmtOSDateAllDay(iso){
+  if(!iso)return"";
+  const d=new Date(iso),n=new Date();
+  const diff=Math.floor((new Date(d.getFullYear(),d.getMonth(),d.getDate())-new Date(n.getFullYear(),n.getMonth(),n.getDate()))/86400000);
+  if(diff===0)return"Today";
+  if(diff===1)return"Tomorrow";
+  return d.toLocaleDateString("en-US",{month:"short",day:"numeric"});
+}
 
 // helpers
 function uid(){return Date.now().toString(36)+Math.random().toString(36).slice(2);}
@@ -65,20 +118,20 @@ function dbu(b){if(!b)return null;const p=String(b).split("-");if(p.length<3)ret
 function fmtB(b){if(!b)return null;const p=String(b).split("-");if(p.length<3)return null;return new Date(+p[0],(+p[1])-1,+p[2]).toLocaleDateString("en-US",{month:"long",day:"numeric"});}
 function fmtD(iso){return new Date(iso).toLocaleDateString("en-US",{month:"short",day:"numeric",year:"numeric"});}
 function ini(c){return((c.fname||"")[0]+(c.lname||"")[0]||"").toUpperCase();}
-function urg(days,nudge){const r=days/nudge;if(r>=1.5)return{col:"#E74C3C",bg:"#FDECEC",label:"🚨 "+days+"d — overdue"};if(r>=0.8)return{col:"#F39C12",bg:"#FEF9EC",label:"⏰ "+days+"d — getting close"};return{col:"#27AE60",bg:"#EAFAF1",label:"✅ "+days+"d ago"};}
+function urg(days,nudge){const r=days/nudge;if(r>=1.5)return{col:"#EF4444",bg:"rgba(239,68,68,0.15)",label:"🚨 "+days+"d — overdue"};if(r>=0.8)return{col:"#F59E0B",bg:"rgba(245,158,11,0.15)",label:"⏰ "+days+"d — getting close"};return{col:"#10B981",bg:"rgba(16,185,129,0.15)",label:"✅ "+days+"d ago"};}
 function nudgeList(){return S.contacts.filter(c=>daysSince(c.lastContact)>=c.nudgeDays*0.8).sort((a,b)=>(daysSince(b.lastContact)/b.nudgeDays)-(daysSince(a.lastContact)/a.nudgeDays));}
 function bdayList(){return S.contacts.filter(c=>c.birthday).map(c=>({...c,dbu:dbu(c.birthday)})).sort((a,b)=>a.dbu-b.dbu);}
 function nudgeDue(c){return (c.nudgeDays||30)-daysSince(c.lastContact);}
 function strength(c){
   var notes=(c.contactNotes||[]).length;
-  if(!c.lastContact&&!notes)return{label:"New",emoji:"🌱",col:"#9B59B6",bg:"#F3E5F5",pct:20};
+  if(!c.lastContact&&!notes)return{label:"New",emoji:"🌱",col:"#8B5CF6",bg:"rgba(139,92,246,0.15)",pct:20};
   var r=daysSince(c.lastContact)/(c.nudgeDays||30);
   var boost=notes>=5?0.3:notes>=2?0.15:0;
   var eff=r-boost;
-  if(eff<=0.5)return{label:"Strong",emoji:"🔥",col:"#27AE60",bg:"#EAFAF1",pct:100};
-  if(eff<=1.0)return{label:"Good",emoji:"👍",col:"#2E7D32",bg:"#EAFAF1",pct:72};
-  if(eff<=1.5)return{label:"Fading",emoji:"😐",col:"#F39C12",bg:"#FEF9EC",pct:45};
-  return{label:"Cold",emoji:"🥶",col:"#E74C3C",bg:"#FDECEC",pct:22};
+  if(eff<=0.5)return{label:"Strong",emoji:"🔥",col:"#10B981",bg:"rgba(16,185,129,0.15)",pct:100};
+  if(eff<=1.0)return{label:"Good",emoji:"👍",col:"#10B981",bg:"rgba(16,185,129,0.12)",pct:72};
+  if(eff<=1.5)return{label:"Fading",emoji:"😐",col:"#F59E0B",bg:"rgba(245,158,11,0.15)",pct:45};
+  return{label:"Cold",emoji:"🥶",col:"#EF4444",bg:"rgba(239,68,68,0.15)",pct:22};
 }
 function upcomingList(){
   var items=[];
@@ -91,7 +144,7 @@ function upcomingList(){
 function cRef(id){return doc(db,"users",FIXED_UID,"contacts",id);}
 function cCol(){return collection(db,"users",FIXED_UID,"contacts");}
 function tagPill(tag){const m=TAG_META[tag]||{label:tag,bg:"#F3F4F6",col:"#6B7280"};return '<span style="font-size:10px;font-weight:700;padding:2px 8px;border-radius:20px;background:'+m.bg+';color:'+m.col+'">'+m.label+'</span>';}
-function syncBadge(){const map={synced:{i:"☁️",l:"Synced",c:"#27AE60",b:"#EAFAF1"},saving:{i:"⏳",l:"Saving…",c:"#F39C12",b:"#FEF9EC"},error:{i:"⚠️",l:"Error",c:"#E74C3C",b:"#FDECEC"}};const s=map[S.syncStatus]||map.synced;return '<div style="display:inline-flex;align-items:center;gap:5px;padding:4px 10px;border-radius:20px;background:'+s.b+';font-size:11px;font-weight:700;color:'+s.c+';font-family:Nunito,sans-serif">'+s.i+' '+s.l+'</div>';}
+function syncBadge(){const map={synced:{i:"☁️",l:"Synced",c:"#10B981",b:"rgba(16,185,129,0.15)"},saving:{i:"⏳",l:"Saving…",c:"#F59E0B",b:"rgba(245,158,11,0.15)"},error:{i:"⚠️",l:"Error",c:"#EF4444",b:"rgba(239,68,68,0.15)"}};const s=map[S.syncStatus]||map.synced;return '<div style="display:inline-flex;align-items:center;gap:5px;padding:4px 10px;border-radius:20px;background:'+s.b+';font-size:11px;font-weight:700;color:'+s.c+';font-family:var(--font-display)">'+s.i+' '+s.l+'</div>';}
 
 // firebase
 async function fbSet(c){S.syncStatus="saving";render();try{await setDoc(cRef(c.id),{...c,_ts:serverTimestamp()});}catch(e){S.syncStatus="error";render();}}
@@ -107,6 +160,7 @@ async function fbUp(id,p){S.syncStatus="saving";render();try{await updateDoc(cRe
     render();
     try{maybeNotify(false);}catch(e){}
   },()=>{S.syncStatus="error";render();});
+  fetchOSData();
 })();
 
 // vCard import
@@ -205,23 +259,23 @@ async function genGifts(){
 function dashView(){
   const nl=nudgeList(),bl=bdayList();
   let h='<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;margin-bottom:16px">';
-  [[S.contacts.length,"👥","Contacts","#FFF3E0","#2C2C2C"],[nl.length,"💬","To text","#FDECEC","#E74C3C"],[bl.filter(b=>b.dbu<=14).length,"🎂","Bdays soon","#FFF8E1","#F39C12"]].forEach(function(x){
-    h+='<div style="background:#fff;border-radius:12px;padding:14px;border:1px solid #F0E8DF;text-align:center"><div style="font-size:22px;margin-bottom:4px">'+x[1]+'</div><div style="font-size:22px;font-weight:900;color:'+x[4]+';font-family:Nunito,sans-serif">'+x[0]+'</div><div style="font-size:11px;color:#9B9B9B;font-weight:600;margin-top:2px">'+x[2]+'</div></div>';
+  [[S.contacts.length,"👥","Contacts","var(--panel2)","var(--text)"],[nl.length,"💬","To text","rgba(239,68,68,0.12)","var(--red)"],[bl.filter(b=>b.dbu<=14).length,"🎂","Bdays soon","rgba(245,158,11,0.12)","var(--amber)"]].forEach(function(x){
+    h+='<div style="background:var(--panel);border-radius:12px;padding:14px;border:1px solid var(--border);text-align:center"><div style="font-size:22px;margin-bottom:4px">'+x[1]+'</div><div style="font-size:22px;font-weight:900;color:'+x[4]+';font-family:var(--font-display)">'+x[0]+'</div><div style="font-size:11px;color:var(--text-mid);font-weight:600;margin-top:2px">'+x[2]+'</div></div>';
   });
   h+='</div>';
   if(nl.length){
-    h+='<div style="background:#fff;border-radius:14px;border:1px solid #F0E8DF;margin-bottom:14px;overflow:hidden"><div style="padding:12px 16px;border-bottom:1px solid #F0E8DF;display:flex;align-items:center;justify-content:space-between"><span style="font-weight:800;font-size:14px;font-family:Nunito,sans-serif">👋 Reach out</span><button onclick="window._sv(\'nudges\')" style="padding:4px 10px;border-radius:8px;border:1.5px solid #E0E0E0;background:#fff;font-size:12px;cursor:pointer;color:#9B9B9B">See all</button></div>';
+    h+='<div style="background:var(--panel);border-radius:14px;border:1px solid var(--border);margin-bottom:14px;overflow:hidden"><div style="padding:12px 16px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between"><span style="font-weight:800;font-size:14px;font-family:var(--font-display)">👋 Reach out</span><button onclick="window._sv(\'nudges\')" style="padding:4px 10px;border-radius:8px;border:1.5px solid var(--border);background:#fff;font-size:12px;cursor:pointer;color:var(--text-mid)">See all</button></div>';
     nl.slice(0,3).forEach(function(c){
       var d=daysSince(c.lastContact),u=urg(d===999?0:d,c.nudgeDays);
-      h+='<div style="display:flex;align-items:center;gap:12px;padding:10px 16px;border-bottom:1px solid #F5F5F5"><div style="width:38px;height:38px;border-radius:50%;background:'+c.color+'22;color:'+c.color+';display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:900;flex-shrink:0">'+ini(c)+'</div><div style="flex:1"><div style="font-weight:800;font-size:14px;font-family:Nunito,sans-serif">'+c.fname+' '+c.lname+'</div><span style="font-size:11px;font-weight:700;padding:2px 7px;border-radius:20px;background:'+u.bg+';color:'+u.col+'">'+u.label+'</span></div><button onclick="window._od(\''+c.id+'\')" style="padding:6px 12px;border-radius:8px;border:none;background:#34C759;color:#fff;font-weight:800;font-size:12px;cursor:pointer">Text 💬</button></div>';
+      h+='<div style="display:flex;align-items:center;gap:12px;padding:10px 16px;border-bottom:1px solid var(--border)"><div style="width:38px;height:38px;border-radius:50%;background:'+c.color+'22;color:'+c.color+';display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:900;flex-shrink:0">'+ini(c)+'</div><div style="flex:1"><div style="font-weight:800;font-size:14px;font-family:var(--font-display)">'+c.fname+' '+c.lname+'</div><span style="font-size:11px;font-weight:700;padding:2px 7px;border-radius:20px;background:'+u.bg+';color:'+u.col+'">'+u.label+'</span></div><button onclick="window._od(\''+c.id+'\')" style="padding:6px 12px;border-radius:8px;border:none;background:var(--green);color:#fff;font-weight:800;font-size:12px;cursor:pointer">Text 💬</button></div>';
     });
     h+='</div>';
   }
   if(bl.length){
-    h+='<div style="background:#fff;border-radius:14px;border:1px solid #F0E8DF;overflow:hidden;margin-bottom:14px"><div style="padding:12px 16px;border-bottom:1px solid #F0E8DF;display:flex;align-items:center;justify-content:space-between"><span style="font-weight:800;font-size:14px;font-family:Nunito,sans-serif">🎂 Birthdays</span><button onclick="window._sv(\'birthdays\')" style="padding:4px 10px;border-radius:8px;border:1.5px solid #E0E0E0;background:#fff;font-size:12px;cursor:pointer;color:#9B9B9B">See all</button></div>';
+    h+='<div style="background:var(--panel);border-radius:14px;border:1px solid var(--border);overflow:hidden;margin-bottom:14px"><div style="padding:12px 16px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between"><span style="font-weight:800;font-size:14px;font-family:var(--font-display)">🎂 Birthdays</span><button onclick="window._sv(\'birthdays\')" style="padding:4px 10px;border-radius:8px;border:1.5px solid var(--border);background:#fff;font-size:12px;cursor:pointer;color:var(--text-mid)">See all</button></div>';
     bl.slice(0,3).forEach(function(c){
       var isToday=c.dbu===0;
-      h+='<div style="display:flex;align-items:center;gap:12px;padding:10px 16px;border-bottom:1px solid #F5F5F5"><div onclick="window._od(\''+c.id+'\')" style="width:38px;height:38px;border-radius:50%;background:'+c.color+'22;color:'+c.color+';display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:900;flex-shrink:0;cursor:pointer">'+ini(c)+'</div><div onclick="window._od(\''+c.id+'\')" style="flex:1;cursor:pointer"><div style="font-weight:800;font-size:14px;font-family:Nunito,sans-serif">'+c.fname+' '+c.lname+'</div><div style="font-size:12px;color:#9B9B9B">'+fmtB(c.birthday)+'</div></div><button onclick="window._ob(\''+c.id+'\')" style="padding:6px 12px;border-radius:8px;border:none;background:'+(isToday?"#F39C12":"#FF6B35")+';color:#fff;font-weight:800;font-size:12px;cursor:pointer;flex-shrink:0">'+(isToday?"🎉 Text!":"🎂 Text")+'</button></div>';
+      h+='<div style="display:flex;align-items:center;gap:12px;padding:10px 16px;border-bottom:1px solid var(--border)"><div onclick="window._od(\''+c.id+'\')" style="width:38px;height:38px;border-radius:50%;background:'+c.color+'22;color:'+c.color+';display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:900;flex-shrink:0;cursor:pointer">'+ini(c)+'</div><div onclick="window._od(\''+c.id+'\')" style="flex:1;cursor:pointer"><div style="font-weight:800;font-size:14px;font-family:var(--font-display)">'+c.fname+' '+c.lname+'</div><div style="font-size:12px;color:var(--text-mid)">'+fmtB(c.birthday)+'</div></div><button onclick="window._ob(\''+c.id+'\')" style="padding:6px 12px;border-radius:8px;border:none;background:'+(isToday?"#F39C12":"#FF6B35")+';color:#fff;font-weight:800;font-size:12px;cursor:pointer;flex-shrink:0">'+(isToday?"🎉 Text!":"🎂 Text")+'</button></div>';
     });
     h+='</div>';
   }
@@ -231,15 +285,52 @@ function dashView(){
     var lastBBQ=bbqCrew.reduce(function(best,c){var d=c.lastContact||"";return d>best?d:best;},"");
     var bbqDays=lastBBQ?daysSince(lastBBQ):999;
     var overdue=bbqDays>=42;
-    h+='<div style="background:'+(overdue?"#FFF3E0":"#fff")+';border-radius:14px;border:1.5px solid '+(overdue?"#FFB74D":"#F0E8DF")+';padding:14px 16px;display:flex;align-items:center;gap:12px">'
+    h+='<div style="background:'+(overdue?"rgba(245,158,11,0.1)":"var(--panel)")+';border-radius:14px;border:1.5px solid '+(overdue?"var(--amber)":"var(--border)")+';padding:14px 16px;display:flex;align-items:center;gap:12px">'
       +'<div style="font-size:28px">🔥</div>'
-      +'<div style="flex:1"><div style="font-weight:800;font-size:14px;font-family:Nunito,sans-serif;color:#2C2C2C">'+(overdue?"Time for a BBQ!":"BBQ Crew")+'</div>'
-      +'<div style="font-size:12px;color:#9B9B9B;margin-top:2px">'+(bbqDays===999?"Haven\'t reached out to the crew yet":overdue?"Last BBQ vibes were "+bbqDays+"d ago 👀":"Last reached out "+bbqDays+"d ago — you\'re good!")+'</div></div>'
-      +(overdue?'<button onclick="window._bbq()" style="padding:8px 14px;border-radius:10px;border:none;background:#FF6B35;color:#fff;font-weight:800;font-size:13px;cursor:pointer;flex-shrink:0">Draft 🍖</button>':"")
+      +'<div style="flex:1"><div style="font-weight:800;font-size:14px;font-family:var(--font-display);color:var(--text)">'+(overdue?"Time for a BBQ!":"BBQ Crew")+'</div>'
+      +'<div style="font-size:12px;color:var(--text-mid);margin-top:2px">'+(bbqDays===999?"Haven\'t reached out to the crew yet":overdue?"Last BBQ vibes were "+bbqDays+"d ago 👀":"Last reached out "+bbqDays+"d ago — you\'re good!")+'</div></div>'
+      +(overdue?'<button onclick="window._bbq()" style="padding:8px 14px;border-radius:10px;border:none;background:var(--accent);color:var(--bg);font-weight:800;font-size:13px;cursor:pointer;flex-shrink:0">Draft 🍖</button>':"")
       +'</div>';
   }
+  // Apple Calendar + Reminders card
+  if(S.osAvailable===null){
+    h+='<div style="background:var(--panel);border-radius:14px;border:1px solid var(--border);padding:14px 16px;display:flex;align-items:center;gap:12px;margin-bottom:14px"><div style="font-size:22px">📅</div><div style="flex:1"><div style="font-weight:800;font-size:14px;font-family:var(--font-display);color:var(--text)">Apple Calendar & Reminders</div><div style="font-size:12px;color:var(--text-mid);margin-top:2px">Connect to see your events here</div></div><button onclick="fetchOSData()" style="padding:7px 14px;border-radius:8px;border:none;background:var(--accent);color:var(--bg);font-weight:800;font-size:12px;cursor:pointer">Connect</button></div>';
+  } else if(S.osLoading){
+    h+='<div style="background:var(--panel);border-radius:14px;border:1px solid var(--border);padding:16px;text-align:center;color:var(--text-mid);font-size:13px;margin-bottom:14px">Loading from Apple…</div>';
+  } else if(S.osAvailable===false){
+    h+='<div style="background:rgba(245,158,11,0.1);border-radius:14px;border:1px solid #FFE082;padding:14px 16px;margin-bottom:14px"><div style="font-weight:800;font-size:13px;font-family:var(--font-display);color:var(--amber)">📅 Local bridge not running</div><div style="font-size:12px;color:var(--text-mid);margin-top:4px">Run <code style="background:var(--panel2);padding:2px 6px;border-radius:4px;font-size:11px">python3 serve_os.py</code> on your Mac to see Calendar & Reminders here. <button onclick="fetchOSData()" style="border:none;background:none;color:#007AFF;font-weight:700;font-size:12px;cursor:pointer;padding:0">Retry</button></div></div>';
+  } else {
+    var evts=S.osEvents||[],rems=S.osReminders||[];
+    h+='<div style="background:var(--panel);border-radius:14px;border:1px solid var(--border);margin-bottom:14px;overflow:hidden">'
+      +'<div style="padding:12px 16px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between"><span style="font-weight:800;font-size:14px;font-family:var(--font-display)">📅 Next 14 Days</span><button onclick="fetchOSData()" style="padding:4px 10px;border-radius:8px;border:1.5px solid var(--border);background:#fff;font-size:12px;cursor:pointer;color:var(--text-mid)">Refresh</button></div>';
+    if(!evts.length){
+      h+='<div style="padding:12px 16px;font-size:13px;color:var(--text-mid)">No upcoming events</div>';
+    } else {
+      evts.slice(0,5).forEach(function(ev){
+        var label=ev.allDay?fmtOSDateAllDay(ev.start):fmtOSDate(ev.start);
+        h+='<div style="display:flex;align-items:center;gap:12px;padding:10px 16px;border-bottom:1px solid var(--border)">'
+          +'<div style="width:36px;height:36px;border-radius:10px;background:var(--accent-dim);color:var(--accent);display:flex;align-items:center;justify-content:center;font-size:16px;flex-shrink:0">📅</div>'
+          +'<div style="flex:1;min-width:0"><div style="font-weight:700;font-size:13px;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">'+escH(ev.title)+'</div>'
+          +'<div style="font-size:11px;color:var(--text-mid);margin-top:1px">'+escH(label)+(ev.calendar?' · '+escH(ev.calendar):'')+'</div></div></div>';
+      });
+    }
+    h+='</div>';
+    if(rems.length){
+      h+='<div style="background:var(--panel);border-radius:14px;border:1px solid var(--border);margin-bottom:14px;overflow:hidden">'
+        +'<div style="padding:12px 16px;border-bottom:1px solid var(--border)"><span style="font-weight:800;font-size:14px;font-family:var(--font-display)">🔔 Reminders</span></div>';
+      rems.slice(0,5).forEach(function(r){
+        var due=r.due?fmtOSDate(r.due):"";
+        var overdue=r.due&&new Date(r.due)<new Date();
+        h+='<div style="display:flex;align-items:center;gap:12px;padding:10px 16px;border-bottom:1px solid var(--border)">'
+          +'<div style="width:36px;height:36px;border-radius:10px;background:'+(overdue?"rgba(239,68,68,0.12)":"rgba(245,158,11,0.1)")+';color:'+(overdue?"var(--red)":"var(--amber)")+';display:flex;align-items:center;justify-content:center;font-size:16px;flex-shrink:0">🔔</div>'
+          +'<div style="flex:1;min-width:0"><div style="font-weight:700;font-size:13px;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">'+escH(r.title)+'</div>'
+          +'<div style="font-size:11px;color:'+(overdue?"var(--red)":"var(--text-mid)")+';margin-top:1px">'+(due?escH(due)+" · ":"")+(r.list?escH(r.list):"")+'</div></div></div>';
+      });
+      h+='</div>';
+    }
+  }
   if(!S.contacts.length){
-    h='<div style="text-align:center;padding:50px 20px"><div style="font-size:48px;margin-bottom:12px">👋</div><div style="font-family:Nunito,sans-serif;font-size:20px;font-weight:800;margin-bottom:8px">Welcome!</div><div style="font-size:14px;color:#9B9B9B;line-height:1.6;margin-bottom:24px">Add your BBQ crew, close friends,<br>kids\' parents — whoever matters.</div><button onclick="window._oa()" style="padding:12px 24px;border-radius:12px;border:none;background:#FF6B35;color:#fff;font-weight:800;font-size:15px;cursor:pointer;font-family:Nunito,sans-serif">+ Add first contact 🔥</button><div style="margin-top:14px"><button onclick="window._oi()" style="padding:10px 20px;border-radius:12px;border:1.5px solid #E8C4B0;background:#fff;color:#FF6B35;font-weight:800;font-size:14px;cursor:pointer;font-family:Nunito,sans-serif">📥 Or import from Apple Contacts</button></div></div>';
+    h='<div style="text-align:center;padding:50px 20px"><div style="font-size:48px;margin-bottom:12px">👋</div><div style="font-family:var(--font-display);font-size:20px;font-weight:800;margin-bottom:8px">Welcome!</div><div style="font-size:14px;color:var(--text-mid);line-height:1.6;margin-bottom:24px">Add your BBQ crew, close friends,<br>kids\' parents — whoever matters.</div><button onclick="window._oa()" style="padding:12px 24px;border-radius:12px;border:none;background:var(--accent);color:var(--bg);font-weight:800;font-size:15px;cursor:pointer;font-family:var(--font-display)">+ Add first contact 🔥</button><div style="margin-top:14px"><button onclick="window._oi()" style="padding:10px 20px;border-radius:12px;border:1.5px solid #E8C4B0;background:#fff;color:#FF6B35;font-weight:800;font-size:14px;cursor:pointer;font-family:var(--font-display)">📥 Or import from Apple Contacts</button></div></div>';
   }
   return h;
 }
@@ -251,20 +342,20 @@ function contactsView(){
   GROUPS.forEach(function(g){
     var active=S.group===g.id;
     var count=g.id==="all"?S.contacts.length:S.contacts.filter(function(c){return(c.tags||[]).includes(g.id);}).length;
-    h+='<button onclick="window._sg2(\''+g.id+'\')" style="flex-shrink:0;display:flex;align-items:center;gap:6px;padding:7px 13px;border-radius:20px;border:1.5px solid '+(active?"#FF6B35":"#E8E0D8")+';background:'+(active?"#FF6B35":"#fff")+';color:'+(active?"#fff":"#6B6B6B")+';font-weight:700;font-size:13px;cursor:pointer;font-family:Nunito,sans-serif;white-space:nowrap">'+g.icon+' '+g.label+'<span style="opacity:0.7;font-size:11px;font-weight:800">'+count+'</span></button>';
+    h+='<button onclick="window._sg2(\''+g.id+'\')" style="flex-shrink:0;display:flex;align-items:center;gap:6px;padding:7px 13px;border-radius:20px;border:1.5px solid '+(active?"#FF6B35":"#E8E0D8")+';background:'+(active?"#FF6B35":"#fff")+';color:'+(active?"#fff":"#6B6B6B")+';font-weight:700;font-size:13px;cursor:pointer;font-family:var(--font-display);white-space:nowrap">'+g.icon+' '+g.label+'<span style="opacity:0.7;font-size:11px;font-weight:800">'+count+'</span></button>';
   });
   h+='</div>';
-  h+='<div style="margin-bottom:12px"><input oninput="S.search=this.value;render()" value="'+escH(S.search)+'" placeholder="🔍 Search contacts…" style="width:100%;border:1.5px solid #E8E0D8;border-radius:10px;padding:9px 14px;font-size:14px;outline:none;font-family:Nunito Sans,sans-serif;box-sizing:border-box;background:#fff"></div>';
-  if(S.group!=="all"){var gm=GROUPS.find(function(g){return g.id===S.group;})||{label:"group"};h+='<button onclick="window._gt(\''+S.group+'\')" style="width:100%;padding:11px;border-radius:12px;border:none;background:#FF6B35;color:#fff;font-weight:800;font-size:14px;cursor:pointer;font-family:Nunito,sans-serif;margin-bottom:12px">💬 Text all of '+gm.label+'</button>';}
-  if(!list.length)return h+'<div style="text-align:center;padding:40px;color:#9B9B9B"><div style="font-size:40px;margin-bottom:12px">👥</div><p>'+(S.search?"No matches":"No contacts here yet!")+'</p></div>';
+  h+='<div style="margin-bottom:12px"><input oninput="S.search=this.value;render()" value="'+escH(S.search)+'" placeholder="🔍 Search contacts…" style="width:100%;border:1.5px solid var(--border);border-radius:10px;padding:9px 14px;font-size:14px;outline:none;font-family:var(--font-body);box-sizing:border-box;background:#fff"></div>';
+  if(S.group!=="all"){var gm=GROUPS.find(function(g){return g.id===S.group;})||{label:"group"};h+='<button onclick="window._gt(\''+S.group+'\')" style="width:100%;padding:11px;border-radius:12px;border:none;background:var(--accent);color:var(--bg);font-weight:800;font-size:14px;cursor:pointer;font-family:var(--font-display);margin-bottom:12px">💬 Text all of '+gm.label+'</button>';}
+  if(!list.length)return h+'<div style="text-align:center;padding:40px;color:var(--text-mid)"><div style="font-size:40px;margin-bottom:12px">👥</div><p>'+(S.search?"No matches":"No contacts here yet!")+'</p></div>';
   h+='<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:12px">';
   list.forEach(function(c){
     var d=daysSince(c.lastContact),bd=dbu(c.birthday),u=urg(d===999?0:d,c.nudgeDays),st=strength(c);
-    h+='<div style="background:#fff;border-radius:14px;padding:14px;border:1px solid #F0E8DF;cursor:pointer;position:relative;overflow:hidden"><div style="position:absolute;top:0;left:0;right:0;height:4px;background:'+c.color+'"></div><div title="'+st.label+' connection" style="position:absolute;top:10px;right:12px;font-size:14px">'+st.emoji+'</div>'
-      +'<div onclick="window._od(\''+c.id+'\')" style="display:block"><div style="width:44px;height:44px;border-radius:50%;background:'+c.color+'22;color:'+c.color+';display:flex;align-items:center;justify-content:center;font-size:15px;font-weight:900;margin:6px 0 8px">'+ini(c)+'</div><div style="font-weight:800;font-size:14px;color:#2C2C2C;font-family:Nunito,sans-serif">'+c.fname+' '+c.lname+'</div><div style="font-size:11px;color:#9B9B9B;margin-top:2px">'+(c.note?c.note.slice(0,35)+"…":"")+'</div></div>'
+    h+='<div style="background:#fff;border-radius:14px;padding:14px;border:1px solid var(--border);cursor:pointer;position:relative;overflow:hidden"><div style="position:absolute;top:0;left:0;right:0;height:4px;background:'+c.color+'"></div><div title="'+st.label+' connection" style="position:absolute;top:10px;right:12px;font-size:14px">'+st.emoji+'</div>'
+      +'<div onclick="window._od(\''+c.id+'\')" style="display:block"><div style="width:44px;height:44px;border-radius:50%;background:'+c.color+'22;color:'+c.color+';display:flex;align-items:center;justify-content:center;font-size:15px;font-weight:900;margin:6px 0 8px">'+ini(c)+'</div><div style="font-weight:800;font-size:14px;color:var(--text);font-family:var(--font-display)">'+c.fname+' '+c.lname+'</div><div style="font-size:11px;color:var(--text-mid);margin-top:2px">'+(c.note?c.note.slice(0,35)+"…":"")+'</div></div>'
       +'<div style="display:flex;align-items:center;gap:4px;flex-wrap:wrap;margin-top:8px">'+(c.tags||[]).slice(0,2).map(tagPill).join("")+'</div>'
-      +'<div style="display:flex;align-items:center;justify-content:space-between;margin-top:8px;padding-top:8px;border-top:1px solid #F0E8DF"><span style="font-size:11px;font-weight:700;color:'+u.col+'">'+(d===999?"never":d+"d")+'</span><button onclick="event.stopPropagation();window._ql(\''+c.id+'\')" title="Mark contacted" style="width:26px;height:26px;border-radius:50%;border:none;background:#34C75922;color:#34C759;font-size:14px;cursor:pointer;display:flex;align-items:center;justify-content:center;font-weight:900">✓</button></div>'
-      +(bd!==null&&bd<=14?'<div style="margin-top:6px;font-size:11px;font-weight:700;color:#FF6B35">🎂 '+(bd===0?"Today!":"In "+bd+"d")+'</div>':"")
+      +'<div style="display:flex;align-items:center;justify-content:space-between;margin-top:8px;padding-top:8px;border-top:1px solid var(--border)"><span style="font-size:11px;font-weight:700;color:'+u.col+'">'+(d===999?"never":d+"d")+'</span><button onclick="event.stopPropagation();window._ql(\''+c.id+'\')" title="Mark contacted" style="width:26px;height:26px;border-radius:50%;border:none;background:#34C75922;color:#34C759;font-size:14px;cursor:pointer;display:flex;align-items:center;justify-content:center;font-weight:900">✓</button></div>'
+      +(bd!==null&&bd<=14?'<div style="margin-top:6px;font-size:11px;font-weight:700;color:var(--accent)">🎂 '+(bd===0?"Today!":"In "+bd+"d")+'</div>':"")
       +'</div>';
   });
   h+='</div>';
@@ -273,10 +364,10 @@ function contactsView(){
 
 function birthdaysView(){
   var bl=bdayList();
-  if(!bl.length)return '<div style="text-align:center;padding:40px;color:#9B9B9B"><div style="font-size:40px">🎂</div><p style="margin-top:12px">Add birthdays to contacts!</p></div>';
-  var h='<div style="background:#fff;border-radius:14px;border:1px solid #F0E8DF;padding:0 16px">';
+  if(!bl.length)return '<div style="text-align:center;padding:40px;color:var(--text-mid)"><div style="font-size:40px">🎂</div><p style="margin-top:12px">Add birthdays to contacts!</p></div>';
+  var h='<div style="background:var(--panel);border-radius:14px;border:1px solid var(--border);padding:0 16px">';
   bl.forEach(function(c){
-    h+='<div onclick="window._od(\''+c.id+'\')" style="display:flex;align-items:center;gap:12px;padding:12px 0;border-bottom:1px solid #F5F5F5;cursor:pointer"><div style="width:40px;height:40px;border-radius:50%;background:'+c.color+'22;color:'+c.color+';display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:900;flex-shrink:0">'+ini(c)+'</div><div style="flex:1"><div style="font-weight:800;font-size:14px;font-family:Nunito,sans-serif">'+c.fname+' '+c.lname+'</div><div style="font-size:12px;color:#9B9B9B;margin-top:2px">'+fmtB(c.birthday)+' · turns '+(new Date().getFullYear()-new Date(c.birthday).getFullYear())+'</div></div><div style="text-align:right"><div style="font-family:Nunito,sans-serif;font-size:18px;font-weight:900;color:'+(c.dbu===0?"#E74C3C":c.dbu<=7?"#F39C12":"#FF6B35")+'">'+(c.dbu===0?"🎉Today!":c.dbu<=1?"Tomorrow!":c.dbu+"d")+'</div></div></div>';
+    h+='<div onclick="window._od(\''+c.id+'\')" style="display:flex;align-items:center;gap:12px;padding:12px 0;border-bottom:1px solid var(--border);cursor:pointer"><div style="width:40px;height:40px;border-radius:50%;background:'+c.color+'22;color:'+c.color+';display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:900;flex-shrink:0">'+ini(c)+'</div><div style="flex:1"><div style="font-weight:800;font-size:14px;font-family:var(--font-display)">'+c.fname+' '+c.lname+'</div><div style="font-size:12px;color:var(--text-mid);margin-top:2px">'+fmtB(c.birthday)+' · turns '+(new Date().getFullYear()-new Date(c.birthday).getFullYear())+'</div></div><div style="text-align:right"><div style="font-family:var(--font-display);font-size:18px;font-weight:900;color:'+(c.dbu===0?"var(--red)":c.dbu<=7?"var(--amber)":"var(--accent)")+'">'+(c.dbu===0?"🎉Today!":c.dbu<=1?"Tomorrow!":c.dbu+"d")+'</div></div></div>';
   });
   h+='</div>';
   return h;
@@ -284,11 +375,11 @@ function birthdaysView(){
 
 function nudgesView(){
   var nl=nudgeList();
-  if(!nl.length)return '<div style="text-align:center;padding:40px;color:#9B9B9B"><div style="font-size:40px">🎉</div><p style="margin-top:12px">All caught up! Your circle feels the love.</p></div>';
+  if(!nl.length)return '<div style="text-align:center;padding:40px;color:var(--text-mid)"><div style="font-size:40px">🎉</div><p style="margin-top:12px">All caught up! Your circle feels the love.</p></div>';
   var h='<div style="display:flex;flex-direction:column;gap:10px">';
   nl.forEach(function(c){
     var d=daysSince(c.lastContact),u=urg(d===999?0:d,c.nudgeDays);
-    h+='<div style="background:#fff;border-radius:12px;padding:12px 14px;border:1px solid #F0E8DF;display:flex;align-items:center;gap:12px"><div style="width:40px;height:40px;border-radius:50%;background:'+c.color+'22;color:'+c.color+';display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:900;flex-shrink:0">'+ini(c)+'</div><div style="flex:1;min-width:0"><div style="font-weight:800;font-size:14px;font-family:Nunito,sans-serif">'+c.fname+' '+c.lname+'</div><span style="font-size:11px;font-weight:700;padding:2px 7px;border-radius:20px;background:'+u.bg+';color:'+u.col+'">'+u.label+'</span></div><button onclick="window._od(\''+c.id+'\')" style="padding:7px 12px;border-radius:8px;border:none;background:#34C759;color:#fff;font-weight:800;font-size:12px;cursor:pointer;flex-shrink:0">Draft 💬</button></div>';
+    h+='<div style="background:var(--panel);border-radius:12px;padding:12px 14px;border:1px solid var(--border);display:flex;align-items:center;gap:12px"><div style="width:40px;height:40px;border-radius:50%;background:'+c.color+'22;color:'+c.color+';display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:900;flex-shrink:0">'+ini(c)+'</div><div style="flex:1;min-width:0"><div style="font-weight:800;font-size:14px;font-family:var(--font-display)">'+c.fname+' '+c.lname+'</div><span style="font-size:11px;font-weight:700;padding:2px 7px;border-radius:20px;background:'+u.bg+';color:'+u.col+'">'+u.label+'</span></div><button onclick="window._od(\''+c.id+'\')" style="padding:7px 12px;border-radius:8px;border:none;background:var(--green);color:#fff;font-weight:800;font-size:12px;cursor:pointer;flex-shrink:0">Draft 💬</button></div>';
   });
   h+='</div>';
   return h;
@@ -298,15 +389,15 @@ function upcomingView(){
   var items=upcomingList();
   var h="";
   if(("Notification" in window)&&!S.notifEnabled){
-    h+='<div style="background:#FFF8F5;border:1.5px solid #FFD4C2;border-radius:12px;padding:12px 14px;display:flex;align-items:center;gap:10px;margin-bottom:12px"><div style="font-size:20px">🔔</div><div style="flex:1;font-size:12px;color:#9B6A4A;line-height:1.4">Get a nudge when someone\'s birthday hits or you\'re overdue to reach out.</div><button onclick="window._notif()" style="padding:7px 12px;border-radius:10px;border:none;background:#FF6B35;color:#fff;font-weight:800;font-size:12px;cursor:pointer;flex-shrink:0">Turn on</button></div>';
+    h+='<div style="background:var(--panel2);border:1.5px solid var(--border);border-radius:12px;padding:12px 14px;display:flex;align-items:center;gap:10px;margin-bottom:12px"><div style="font-size:20px">🔔</div><div style="flex:1;font-size:12px;color:var(--text-mid);line-height:1.4">Get a nudge when someone\'s birthday hits or you\'re overdue to reach out.</div><button onclick="window._notif()" style="padding:7px 12px;border-radius:10px;border:none;background:var(--accent);color:var(--bg);font-weight:800;font-size:12px;cursor:pointer;flex-shrink:0">Turn on</button></div>';
   }
-  if(!items.length)return h+'<div style="text-align:center;padding:40px;color:#9B9B9B"><div style="font-size:40px">📅</div><p style="margin-top:12px">Nothing coming up in the next while. You\'re all caught up!</p></div>';
+  if(!items.length)return h+'<div style="text-align:center;padding:40px;color:var(--text-mid)"><div style="font-size:40px">📅</div><p style="margin-top:12px">Nothing coming up in the next while. You\'re all caught up!</p></div>';
   h+='<div style="display:flex;flex-direction:column;gap:8px">';
   items.forEach(function(it){
     var c=it.c,isB=it.type==="birthday",when,col,label,action;
     if(isB){
       when=it.days===0?"🎉 Today!":it.days===1?"Tomorrow":"in "+it.days+"d";
-      col=it.days===0?"#E74C3C":it.days<=7?"#F39C12":"#FF6B35";
+      col=it.days===0?"var(--red)":it.days<=7?"var(--amber)":"var(--accent)";
       label="🎂 Birthday · "+fmtB(c.birthday);
       action="window._ob('"+c.id+"')";
     } else {
@@ -317,10 +408,10 @@ function upcomingView(){
       label="💬 Time to check in";
       action="window._od('"+c.id+"')";
     }
-    h+='<div onclick="'+action+'" style="background:#fff;border-radius:12px;padding:12px 14px;border:1px solid #F0E8DF;display:flex;align-items:center;gap:12px;cursor:pointer">'
+    h+='<div onclick="'+action+'" style="background:var(--panel);border-radius:12px;padding:12px 14px;border:1px solid var(--border);display:flex;align-items:center;gap:12px;cursor:pointer">'
       +'<div style="width:40px;height:40px;border-radius:50%;background:'+c.color+'22;color:'+c.color+';display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:900;flex-shrink:0">'+ini(c)+'</div>'
-      +'<div style="flex:1;min-width:0"><div style="font-weight:800;font-size:14px;font-family:Nunito,sans-serif">'+c.fname+' '+c.lname+'</div><div style="font-size:12px;color:#9B9B9B">'+label+'</div></div>'
-      +'<div style="font-family:Nunito,sans-serif;font-size:13px;font-weight:800;color:'+col+';flex-shrink:0;text-align:right">'+when+'</div>'
+      +'<div style="flex:1;min-width:0"><div style="font-weight:800;font-size:14px;font-family:var(--font-display)">'+c.fname+' '+c.lname+'</div><div style="font-size:12px;color:var(--text-mid)">'+label+'</div></div>'
+      +'<div style="font-family:var(--font-display);font-size:13px;font-weight:800;color:'+col+';flex-shrink:0;text-align:right">'+when+'</div>'
       +'</div>';
   });
   h+='</div>';
@@ -332,79 +423,79 @@ function detailHTML(){
   var d=daysSince(c.lastContact),bd=dbu(c.birthday),isBday=bd!==null&&bd<=14,u=urg(d===999?0:d,c.nudgeDays),notes=c.contactNotes||[],gifts=c.gifts||[],st=strength(c);
 
   // draft
-  var draft='<div><div style="font-size:10px;font-weight:800;color:#9B9B9B;text-transform:uppercase;letter-spacing:1.5px;margin-bottom:8px">Draft a Text</div>';
+  var draft='<div><div style="font-size:10px;font-weight:800;color:var(--text-mid);text-transform:uppercase;letter-spacing:1.5px;margin-bottom:8px">Draft a Text</div>';
   if(S.draftLoading){
-    draft+='<div style="display:flex;align-items:center;gap:10px;padding:12px;background:#F9FAFB;border-radius:12px;font-size:13px;color:#9B9B9B;font-style:italic"><div style="width:14px;height:14px;border:2px solid #E0E0E0;border-top-color:#FF6B35;border-radius:50%;animation:spin 0.7s linear infinite"></div>Thinking…</div>';
+    draft+='<div style="display:flex;align-items:center;gap:10px;padding:12px;background:var(--panel2);border-radius:12px;font-size:13px;color:var(--text-mid);font-style:italic"><div style="width:14px;height:14px;border:2px solid var(--border);border-top-color:var(--accent);border-radius:50%;animation:spin 0.7s linear infinite"></div>Thinking…</div>';
   } else if(S.draftText){
     var sms=c.phone?"sms:+"+telDigits(c.phone)+"?body="+encodeURIComponent(S.draftText):"";
-    draft+='<div style="background:#F0FFF4;border:1.5px solid #C8E6C9;border-radius:12px;padding:12px;font-size:13px;color:#1B5E20;line-height:1.7;font-style:italic">'+S.draftText.replace(/</g,"&lt;")+'</div><div style="display:flex;gap:8px;margin-top:8px;flex-wrap:wrap">'+(sms?'<a href="'+sms+'" style="display:flex;align-items:center;gap:5px;padding:7px 12px;border-radius:10px;background:#34C759;color:#fff;font-weight:800;font-size:12px;text-decoration:none">📱 Messages</a>':"")+'<button onclick="window._cp()" id="cpbtn" style="padding:7px 12px;border-radius:10px;border:1.5px solid #E0E0E0;background:#fff;font-size:12px;cursor:pointer">📋 Copy</button><button onclick="window._cd()" style="padding:7px 12px;border-radius:10px;border:1.5px solid #E0E0E0;background:#fff;font-size:12px;cursor:pointer;color:#9B9B9B">↺ New</button></div>';
+    draft+='<div style="background:rgba(16,185,129,0.1);border:1.5px solid rgba(16,185,129,0.3);border-radius:12px;padding:12px;font-size:13px;color:var(--green);line-height:1.7;font-style:italic">'+S.draftText.replace(/</g,"&lt;")+'</div><div style="display:flex;gap:8px;margin-top:8px;flex-wrap:wrap">'+(sms?'<a href="'+sms+'" style="display:flex;align-items:center;gap:5px;padding:7px 12px;border-radius:10px;background:var(--green);color:#fff;font-weight:800;font-size:12px;text-decoration:none">📱 Messages</a>':"")+'<button onclick="window._cp()" id="cpbtn" style="padding:7px 12px;border-radius:10px;border:1.5px solid var(--border);background:#fff;font-size:12px;cursor:pointer">📋 Copy</button><button onclick="window._cd()" style="padding:7px 12px;border-radius:10px;border:1.5px solid var(--border);background:#fff;font-size:12px;cursor:pointer;color:var(--text-mid)">↺ New</button></div>';
   } else {
-    draft+='<div style="display:flex;gap:7px;flex-wrap:wrap"><button onclick="window._gd(\'catchup\')" style="padding:8px 12px;border-radius:10px;border:none;background:#FF6B35;color:#fff;font-weight:800;font-size:12px;cursor:pointer">💬 Check in</button><button onclick="window._gd(\'hangout\')" style="padding:8px 12px;border-radius:10px;border:none;background:#3498DB;color:#fff;font-weight:800;font-size:12px;cursor:pointer">🍻 Hangout</button>'+(isBday?'<button onclick="window._gd(\'birthday\')" style="padding:8px 12px;border-radius:10px;border:none;background:#F39C12;color:#fff;font-weight:800;font-size:12px;cursor:pointer">🎂 Birthday</button>':"")+'<button onclick="window._gd(\'bbq\')" style="padding:8px 12px;border-radius:10px;border:none;background:#2ECC71;color:#fff;font-weight:800;font-size:12px;cursor:pointer">🔥 BBQ</button></div>';
+    draft+='<div style="display:flex;gap:7px;flex-wrap:wrap"><button onclick="window._gd(\'catchup\')" style="padding:8px 12px;border-radius:10px;border:none;background:var(--accent);color:var(--bg);font-weight:800;font-size:12px;cursor:pointer">💬 Check in</button><button onclick="window._gd(\'hangout\')" style="padding:8px 12px;border-radius:10px;border:none;background:var(--accent);color:var(--bg);font-weight:800;font-size:12px;cursor:pointer">🍻 Hangout</button>'+(isBday?'<button onclick="window._gd(\'birthday\')" style="padding:8px 12px;border-radius:10px;border:none;background:var(--amber);color:var(--bg);font-weight:800;font-size:12px;cursor:pointer">🎂 Birthday</button>':"")+'<button onclick="window._gd(\'bbq\')" style="padding:8px 12px;border-radius:10px;border:none;background:var(--green);color:#fff;font-weight:800;font-size:12px;cursor:pointer">🔥 BBQ</button></div>';
   }
   draft+='</div>';
 
   // notes
-  var ns='<div><div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px"><div style="font-size:10px;font-weight:800;color:#9B9B9B;text-transform:uppercase;letter-spacing:1.5px">Notes</div>'+(S.noteAdding?"":"<button onclick=\"S.noteAdding=true;render()\" style=\"padding:3px 10px;border-radius:8px;border:1.5px solid #E0E0E0;background:#fff;font-size:12px;cursor:pointer;color:#FF6B35;font-weight:700\">+ Add</button>")+'</div>';
+  var ns='<div><div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px"><div style="font-size:10px;font-weight:800;color:var(--text-mid);text-transform:uppercase;letter-spacing:1.5px">Notes</div>'+(S.noteAdding?"":"<button onclick=\"S.noteAdding=true;render()\" style=\"padding:3px 10px;border-radius:8px;border:1.5px solid var(--border);background:#fff;font-size:12px;cursor:pointer;color:#FF6B35;font-weight:700\">+ Add</button>")+'</div>';
   if(S.noteAdding){
-    ns+='<div style="background:#FFFBF8;border:1.5px solid #FFD4C2;border-radius:12px;padding:12px;margin-bottom:10px"><textarea id="ni" placeholder="What did you talk about?" style="width:100%;border:none;background:transparent;resize:none;font-size:13px;color:#2C2C2C;outline:none;min-height:70px;line-height:1.6;font-family:Nunito Sans,sans-serif;box-sizing:border-box"></textarea><div style="display:flex;gap:8px;justify-content:flex-end;margin-top:6px;border-top:1px solid #F0E8DF;padding-top:8px"><button onclick="S.noteAdding=false;render()" style="padding:5px 12px;border-radius:8px;border:1.5px solid #E0E0E0;background:#fff;font-size:12px;cursor:pointer;color:#9B9B9B">Cancel</button><button onclick="window._sn()" style="padding:5px 12px;border-radius:8px;border:none;background:#FF6B35;font-size:12px;cursor:pointer;color:#fff;font-weight:800">Save</button></div></div>';
+    ns+='<div style="background:var(--panel2);border:1.5px solid var(--border);border-radius:12px;padding:12px;margin-bottom:10px"><textarea id="ni" placeholder="What did you talk about?" style="width:100%;border:none;background:transparent;resize:none;font-size:13px;color:var(--text);outline:none;min-height:70px;line-height:1.6;font-family:var(--font-body);box-sizing:border-box"></textarea><div style="display:flex;gap:8px;justify-content:flex-end;margin-top:6px;border-top:1px solid var(--border);padding-top:8px"><button onclick="S.noteAdding=false;render()" style="padding:5px 12px;border-radius:8px;border:1.5px solid var(--border);background:#fff;font-size:12px;cursor:pointer;color:var(--text-mid)">Cancel</button><button onclick="window._sn()" style="padding:5px 12px;border-radius:8px;border:none;background:#FF6B35;font-size:12px;cursor:pointer;color:#fff;font-weight:800">Save</button></div></div>';
   }
-  if(!notes.length&&!S.noteAdding){ns+='<div style="text-align:center;padding:14px;background:#FAFAFA;border-radius:12px;border:1.5px dashed #E8E0D8"><div style="font-size:18px;margin-bottom:4px">📝</div><div style="font-size:12px;color:#9B9B9B">No notes yet</div></div>';}
-  notes.forEach(function(n){ns+='<div style="background:#FAFAFA;border-radius:10px;padding:10px 12px;margin-bottom:7px;border:1px solid #F0E8DF"><div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px"><span style="font-size:11px;font-weight:700;color:#C4B5A8">'+fmtD(n.date)+'</span><button onclick="window._dn(\''+c.id+'\',\''+n.id+'\')" style="background:none;border:none;cursor:pointer;font-size:12px;color:#D0C8C0" onmouseenter="this.style.color=\'#E74C3C\'" onmouseleave="this.style.color=\'#D0C8C0\'">✕</button></div><div style="font-size:13px;color:#444;line-height:1.6;white-space:pre-wrap">'+n.text.replace(/</g,"&lt;")+'</div></div>';});
+  if(!notes.length&&!S.noteAdding){ns+='<div style="text-align:center;padding:14px;background:var(--panel2);border-radius:12px;border:1.5px dashed var(--border2)"><div style="font-size:18px;margin-bottom:4px">📝</div><div style="font-size:12px;color:var(--text-mid)">No notes yet</div></div>';}
+  notes.forEach(function(n){ns+='<div style="background:var(--panel2);border-radius:10px;padding:10px 12px;margin-bottom:7px;border:1px solid var(--border)"><div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px"><span style="font-size:11px;font-weight:700;color:var(--text-dim)">'+fmtD(n.date)+'</span><button onclick="window._dn(\''+c.id+'\',\''+n.id+'\')" style="background:none;border:none;cursor:pointer;font-size:12px;color:var(--text-dim)" onmouseenter="this.style.color=\'#E74C3C\'" onmouseleave="this.style.color=\'#D0C8C0\'">✕</button></div><div style="font-size:13px;color:var(--text);line-height:1.6;white-space:pre-wrap">'+n.text.replace(/</g,"&lt;")+'</div></div>';});
   ns+='</div>';
 
   // gifts
   var grouped={};gifts.forEach(function(g){grouped[g.occasion]=grouped[g.occasion]||[];grouped[g.occasion].push(g);});
-  var gs='<div><div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px"><div style="font-size:10px;font-weight:800;color:#9B9B9B;text-transform:uppercase;letter-spacing:1.5px">Gift Ideas 🎁</div>'+(S.giftAdding?"":"<button onclick=\"S.giftAdding=true;render()\" style=\"padding:3px 10px;border-radius:8px;border:1.5px solid #E0E0E0;background:#fff;font-size:12px;cursor:pointer;color:#FF6B35;font-weight:700\">+ Add</button>")+'</div>';
+  var gs='<div><div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px"><div style="font-size:10px;font-weight:800;color:var(--text-mid);text-transform:uppercase;letter-spacing:1.5px">Gift Ideas 🎁</div>'+(S.giftAdding?"":"<button onclick=\"S.giftAdding=true;render()\" style=\"padding:3px 10px;border-radius:8px;border:1.5px solid var(--border);background:#fff;font-size:12px;cursor:pointer;color:#FF6B35;font-weight:700\">+ Add</button>")+'</div>';
   if(S.giftAdding){
-    gs+='<div style="background:#FFF8F5;border:1.5px solid #FFD4C2;border-radius:12px;padding:12px;margin-bottom:10px"><div style="font-size:11px;font-weight:700;color:#9B9B9B;margin-bottom:6px">OCCASION</div><div style="display:flex;flex-wrap:wrap;gap:5px;margin-bottom:10px">';
-    OCCASIONS.forEach(function(o){gs+='<button onclick="S.addOccasion=\''+o+'\';render()" style="padding:3px 8px;border-radius:20px;border:1.5px solid '+(S.addOccasion===o?"#FF6B35":"#E0E0E0")+';background:'+(S.addOccasion===o?"#FF6B35":"#fff")+';color:'+(S.addOccasion===o?"#fff":"#9B9B9B")+';font-size:11px;font-weight:700;cursor:pointer">'+o+'</button>';});
-    gs+='</div><input id="gi" placeholder="e.g. Traeger cookbook, nice whiskey…" style="width:100%;border:1.5px solid #E8E0D8;border-radius:8px;padding:8px 10px;font-size:13px;outline:none;margin-bottom:8px;box-sizing:border-box"><div style="display:flex;gap:8px;justify-content:space-between;align-items:center"><button onclick="window._gg()" style="padding:6px 12px;border-radius:8px;border:none;background:'+(S.giftGenerating?"#ccc":"#9B59B6")+';color:#fff;font-size:12px;font-weight:800;cursor:pointer;display:flex;align-items:center;gap:5px">'+(S.giftGenerating?'<div style="width:11px;height:11px;border:2px solid rgba(255,255,255,0.4);border-top-color:#fff;border-radius:50%;animation:spin 0.7s linear infinite"></div>Thinking…':"✨ AI ideas")+'</button><div style="display:flex;gap:8px"><button onclick="S.giftAdding=false;render()" style="padding:6px 12px;border-radius:8px;border:1.5px solid #E0E0E0;background:#fff;font-size:12px;cursor:pointer;color:#9B9B9B">Cancel</button><button onclick="window._sg()" style="padding:6px 12px;border-radius:8px;border:none;background:#FF6B35;font-size:12px;cursor:pointer;color:#fff;font-weight:800">Save</button></div></div></div>';
+    gs+='<div style="background:var(--panel2);border:1.5px solid var(--border);border-radius:12px;padding:12px;margin-bottom:10px"><div style="font-size:11px;font-weight:700;color:var(--text-mid);margin-bottom:6px">OCCASION</div><div style="display:flex;flex-wrap:wrap;gap:5px;margin-bottom:10px">';
+    OCCASIONS.forEach(function(o){gs+='<button onclick="S.addOccasion=\''+o+'\';render()" style="padding:3px 8px;border-radius:20px;border:1.5px solid '+(S.addOccasion===o?"var(--accent)":"var(--border)")+';background:'+(S.addOccasion===o?"var(--accent)":"var(--panel2)")+';color:'+(S.addOccasion===o?"var(--bg)":"var(--text-mid)")+';font-size:11px;font-weight:700;cursor:pointer">'+o+'</button>';});
+    gs+='</div><input id="gi" placeholder="e.g. Traeger cookbook, nice whiskey…" style="width:100%;border:1.5px solid var(--border);border-radius:8px;padding:8px 10px;font-size:13px;outline:none;margin-bottom:8px;box-sizing:border-box"><div style="display:flex;gap:8px;justify-content:space-between;align-items:center"><button onclick="window._gg()" style="padding:6px 12px;border-radius:8px;border:none;background:'+(S.giftGenerating?"#ccc":"#9B59B6")+';color:#fff;font-size:12px;font-weight:800;cursor:pointer;display:flex;align-items:center;gap:5px">'+(S.giftGenerating?'<div style="width:11px;height:11px;border:2px solid rgba(255,255,255,0.4);border-top-color:#fff;border-radius:50%;animation:spin 0.7s linear infinite"></div>Thinking…':"✨ AI ideas")+'</button><div style="display:flex;gap:8px"><button onclick="S.giftAdding=false;render()" style="padding:6px 12px;border-radius:8px;border:1.5px solid var(--border);background:#fff;font-size:12px;cursor:pointer;color:var(--text-mid)">Cancel</button><button onclick="window._sg()" style="padding:6px 12px;border-radius:8px;border:none;background:#FF6B35;font-size:12px;cursor:pointer;color:#fff;font-weight:800">Save</button></div></div></div>';
   }
-  if(!gifts.length&&!S.giftAdding){gs+='<div style="text-align:center;padding:14px;background:#FAFAFA;border-radius:12px;border:1.5px dashed #E8E0D8"><div style="font-size:18px;margin-bottom:4px">🎁</div><div style="font-size:12px;color:#9B9B9B">No gift ideas yet</div></div>';}
+  if(!gifts.length&&!S.giftAdding){gs+='<div style="text-align:center;padding:14px;background:var(--panel2);border-radius:12px;border:1.5px dashed var(--border2)"><div style="font-size:18px;margin-bottom:4px">🎁</div><div style="font-size:12px;color:var(--text-mid)">No gift ideas yet</div></div>';}
   Object.keys(grouped).forEach(function(occ){
-    gs+='<div style="margin-bottom:10px"><div style="font-size:11px;font-weight:800;color:#C4B5A8;margin-bottom:5px">'+occ+'</div>';
+    gs+='<div style="margin-bottom:10px"><div style="font-size:11px;font-weight:800;color:var(--text-dim);margin-bottom:5px">'+occ+'</div>';
     grouped[occ].forEach(function(g){
-      gs+='<div style="display:flex;align-items:center;gap:8px;padding:7px 10px;border-radius:8px;background:'+(g.bought?"#F0FFF4":"#FAFAFA")+';border:1px solid '+(g.bought?"#C8E6C9":"#F0E8DF")+';margin-bottom:4px"><input type="checkbox" '+(g.bought?"checked":"")+" onchange=\"window._tg('"+c.id+"','"+g.id+"')\" style=\"width:15px;height:15px;cursor:pointer;accent-color:#2ECC71;flex-shrink:0\"><span style=\"flex:1;font-size:13px;color:"+(g.bought?"#9B9B9B":"#2C2C2C")+";text-decoration:"+(g.bought?"line-through":"none")+"\">"+g.text.replace(/</g,"&lt;")+"</span><button onclick=\"window._dg('"+c.id+"','"+g.id+"')\" style=\"background:none;border:none;cursor:pointer;font-size:12px;color:#D0C8C0\" onmouseenter=\"this.style.color='#E74C3C'\" onmouseleave=\"this.style.color='#D0C8C0'\">✕</button></div>";
+      gs+='<div style="display:flex;align-items:center;gap:8px;padding:7px 10px;border-radius:8px;background:'+(g.bought?"#F0FFF4":"#FAFAFA")+';border:1px solid '+(g.bought?"#C8E6C9":"#F0E8DF")+';margin-bottom:4px"><input type="checkbox" '+(g.bought?"checked":"")+" onchange=\"window._tg('"+c.id+"','"+g.id+"')\" style=\"width:15px;height:15px;cursor:pointer;accent-color:#2ECC71;flex-shrink:0\"><span style=\"flex:1;font-size:13px;color:"+(g.bought?"#9B9B9B":"#2C2C2C")+";text-decoration:"+(g.bought?"line-through":"none")+"\">"+g.text.replace(/</g,"&lt;")+"</span><button onclick=\"window._dg('"+c.id+"','"+g.id+"')\" style=\"background:none;border:none;cursor:pointer;font-size:12px;color:var(--text-dim)\" onmouseenter=\"this.style.color='#E74C3C'\" onmouseleave=\"this.style.color='#D0C8C0'\">✕</button></div>";
     });
     gs+='</div>';
   });
   gs+='</div>';
 
-  return '<div onclick="if(event.target===this)window._cl()" style="position:fixed;inset:0;background:rgba(0,0,0,0.45);z-index:200;display:flex;align-items:center;justify-content:flex-end"><div style="width:min(420px,100vw);height:100%;background:#fff;overflow-y:auto;padding:22px;display:flex;flex-direction:column;gap:16px;font-family:Nunito Sans,sans-serif;animation:slideIn 0.2s ease">'
-    +'<div style="display:flex;align-items:flex-start;gap:12px"><div style="width:54px;height:54px;border-radius:50%;background:'+c.color+'22;color:'+c.color+';display:flex;align-items:center;justify-content:center;font-size:18px;font-weight:900;flex-shrink:0">'+ini(c)+'</div><div style="flex:1"><div style="font-size:20px;font-weight:900;color:#2C2C2C;font-family:Nunito,sans-serif">'+c.fname+' '+c.lname+'</div><div style="display:flex;gap:4px;flex-wrap:wrap;margin-top:5px">'+(c.tags||[]).map(tagPill).join("")+'</div></div><button onclick="window._cl()" style="background:#F5F5F5;border:none;border-radius:50%;width:28px;height:28px;cursor:pointer;font-size:13px;flex-shrink:0">✕</button></div>'
-    +(isBday?'<div style="background:#FFF8E1;border:1.5px solid #FFE082;border-radius:10px;padding:10px 12px;font-weight:700;font-size:13px;color:#F57F17">🎂 '+(bd===0?"It\'s their birthday TODAY! 🎉":"Birthday in "+bd+(bd===1?" day":"days")+"!")+" — "+fmtB(c.birthday)+"</div>":"")
-    +'<div>'+(c.phone?'<div style="display:flex;align-items:center;gap:8px;padding:7px 0;border-bottom:1px solid #F0E8DF;font-size:13px;color:#555"><span>📞</span>'+fmtPhone(c.phone)+'</div>':"")+'<div style="display:flex;align-items:flex-start;gap:8px;padding:7px 0;border-bottom:1px solid #F0E8DF;font-size:13px;color:#555"><span>📝</span><span>'+(c.note||"No note")+'</span></div><div style="display:flex;gap:8px;padding:7px 0;border-bottom:1px solid #F0E8DF;font-size:13px;color:#555"><span>⏱️</span>Last contact: <b>'+(d===999?"Never":d+"d ago")+'</b></div><div style="display:flex;gap:8px;padding:7px 0;font-size:13px;color:#555"><span>🔔</span>Nudge every '+c.nudgeDays+' days</div></div>'
+  return '<div onclick="if(event.target===this)window._cl()" style="position:fixed;inset:0;background:rgba(0,0,0,0.45);z-index:200;display:flex;align-items:center;justify-content:flex-end"><div style="width:min(420px,100vw);height:100%;background:#fff;overflow-y:auto;padding:22px;display:flex;flex-direction:column;gap:16px;font-family:var(--font-body);animation:slideIn 0.2s ease">'
+    +'<div style="display:flex;align-items:flex-start;gap:12px"><div style="width:54px;height:54px;border-radius:50%;background:'+c.color+'22;color:'+c.color+';display:flex;align-items:center;justify-content:center;font-size:18px;font-weight:900;flex-shrink:0">'+ini(c)+'</div><div style="flex:1"><div style="font-size:20px;font-weight:900;color:var(--text);font-family:var(--font-display)">'+c.fname+' '+c.lname+'</div><div style="display:flex;gap:4px;flex-wrap:wrap;margin-top:5px">'+(c.tags||[]).map(tagPill).join("")+'</div></div><button onclick="window._cl()" style="background:#F5F5F5;border:none;border-radius:50%;width:28px;height:28px;cursor:pointer;font-size:13px;flex-shrink:0">✕</button></div>'
+    +(isBday?'<div style="background:rgba(245,158,11,0.1);border:1.5px solid rgba(245,158,11,0.3);border-radius:10px;padding:10px 12px;font-weight:700;font-size:13px;color:var(--amber)">🎂 '+(bd===0?"It\'s their birthday TODAY! 🎉":"Birthday in "+bd+(bd===1?" day":"days")+"!")+" — "+fmtB(c.birthday)+"</div>":"")
+    +'<div>'+(c.phone?'<div style="display:flex;align-items:center;gap:8px;padding:7px 0;border-bottom:1px solid var(--border);font-size:13px;color:#555"><span>📞</span>'+fmtPhone(c.phone)+'</div>':"")+'<div style="display:flex;align-items:flex-start;gap:8px;padding:7px 0;border-bottom:1px solid var(--border);font-size:13px;color:#555"><span>📝</span><span>'+(c.note||"No note")+'</span></div><div style="display:flex;gap:8px;padding:7px 0;border-bottom:1px solid var(--border);font-size:13px;color:#555"><span>⏱️</span>Last contact: <b>'+(d===999?"Never":d+"d ago")+'</b></div><div style="display:flex;gap:8px;padding:7px 0;font-size:13px;color:#555"><span>🔔</span>Nudge every '+c.nudgeDays+' days</div></div>'
     +'<div style="background:'+u.bg+';border-radius:10px;padding:9px 12px;font-size:13px;font-weight:700;color:'+u.col+'">'+u.label+'</div>'
-    +'<div style="background:'+st.bg+';border-radius:10px;padding:10px 12px"><div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px"><span style="font-size:12px;font-weight:800;color:'+st.col+'">'+st.emoji+' '+st.label+' connection</span><span style="font-size:11px;color:#9B9B9B">'+notes.length+' note'+(notes.length===1?"":"s")+'</span></div><div style="height:6px;background:#fff;border-radius:10px;overflow:hidden"><div style="height:100%;width:'+st.pct+'%;background:'+st.col+';border-radius:10px"></div></div></div>'
+    +'<div style="background:'+st.bg+';border-radius:10px;padding:10px 12px"><div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px"><span style="font-size:12px;font-weight:800;color:'+st.col+'">'+st.emoji+' '+st.label+' connection</span><span style="font-size:11px;color:var(--text-mid)">'+notes.length+' note'+(notes.length===1?"":"s")+'</span></div><div style="height:6px;background:#fff;border-radius:10px;overflow:hidden"><div style="height:100%;width:'+st.pct+'%;background:'+st.col+';border-radius:10px"></div></div></div>'
     +draft+ns+gs
-    +'<div style="display:flex;gap:10px;padding-top:8px"><button onclick="window._mc(\''+c.id+'\')" style="flex:2;padding:11px;border-radius:12px;border:none;background:#FF6B35;color:#fff;font-weight:800;font-size:14px;cursor:pointer;font-family:Nunito,sans-serif">✅ Mark Contacted</button><button onclick="window._oe(\''+c.id+'\')" style="flex:1;padding:11px;border-radius:12px;border:1.5px solid #E0E0E0;background:#fff;font-weight:700;font-size:13px;cursor:pointer;color:#9B9B9B">✏️ Edit</button></div>'
+    +'<div style="display:flex;gap:10px;padding-top:8px"><button onclick="window._mc(\''+c.id+'\')" style="flex:2;padding:11px;border-radius:12px;border:none;background:var(--accent);color:var(--bg);font-weight:800;font-size:14px;cursor:pointer;font-family:var(--font-display)">✅ Mark Contacted</button><button onclick="window._oe(\''+c.id+'\')" style="flex:1;padding:11px;border-radius:12px;border:1.5px solid var(--border);background:#fff;font-weight:700;font-size:13px;cursor:pointer;color:var(--text-mid)">✏️ Edit</button></div>'
     +'</div></div>';
 }
 
 function addModalHTML(){
   if(!S.showAdd)return "";
-  var inp="width:100%;border:1.5px solid #E8E0D8;border-radius:10px;padding:9px 12px;font-size:14px;color:#2C2C2C;outline:none;font-family:Nunito Sans,sans-serif;box-sizing:border-box;background:#FAFAFA";
+  var inp="width:100%;border:1.5px solid var(--border);border-radius:10px;padding:9px 12px;font-size:14px;color:var(--text);outline:none;font-family:var(--font-body);box-sizing:border-box;background:var(--panel2)";
   return '<div style="position:fixed;inset:0;background:rgba(0,0,0,0.45);z-index:300;display:flex;align-items:center;justify-content:center;padding:16px">'
-    +'<div style="background:#fff;border-radius:18px;padding:22px;width:100%;max-width:460px;max-height:90vh;overflow-y:auto;font-family:Nunito Sans,sans-serif">'
-    +'<div style="font-size:18px;font-weight:900;margin-bottom:12px;font-family:Nunito,sans-serif">Add to Inner Circle ✨</div>'
-    +'<button onclick="window._oi()" style="width:100%;padding:10px;border-radius:12px;border:1.5px solid #E8C4B0;background:#FFFBF8;color:#FF6B35;font-weight:800;font-size:13px;cursor:pointer;margin-bottom:14px;font-family:Nunito,sans-serif">📥 Import a list from Apple Contacts</button>'
+    +'<div style="background:#fff;border-radius:18px;padding:22px;width:100%;max-width:460px;max-height:90vh;overflow-y:auto;font-family:var(--font-body)">'
+    +'<div style="font-size:18px;font-weight:900;margin-bottom:12px;font-family:var(--font-display)">Add to Inner Circle ✨</div>'
+    +'<button onclick="window._oi()" style="width:100%;padding:10px;border-radius:12px;border:1.5px solid #E8C4B0;background:var(--panel2);color:#FF6B35;font-weight:800;font-size:13px;cursor:pointer;margin-bottom:14px;font-family:var(--font-display)">📥 Import a list from Apple Contacts</button>'
     +'<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px">'
-    +'<div><label style="font-size:11px;font-weight:700;color:#9B9B9B;text-transform:uppercase;display:block;margin-bottom:4px">First Name</label><input id="ac-fn" style="'+inp+'" placeholder="Mike"></div>'
-    +'<div><label style="font-size:11px;font-weight:700;color:#9B9B9B;text-transform:uppercase;display:block;margin-bottom:4px">Last Name</label><input id="ac-ln" style="'+inp+'" placeholder="Johnson"></div></div>'
+    +'<div><label style="font-size:11px;font-weight:700;color:var(--text-mid);text-transform:uppercase;display:block;margin-bottom:4px">First Name</label><input id="ac-fn" style="'+inp+'" placeholder="Mike"></div>'
+    +'<div><label style="font-size:11px;font-weight:700;color:var(--text-mid);text-transform:uppercase;display:block;margin-bottom:4px">Last Name</label><input id="ac-ln" style="'+inp+'" placeholder="Johnson"></div></div>'
     +'<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px">'
-    +'<div><label style="font-size:11px;font-weight:700;color:#9B9B9B;text-transform:uppercase;display:block;margin-bottom:4px">Phone</label><input id="ac-ph" style="'+inp+'" placeholder="+1 555-0000"></div>'
-    +'<div><label style="font-size:11px;font-weight:700;color:#9B9B9B;text-transform:uppercase;display:block;margin-bottom:4px">Birthday</label><input id="ac-bd" type="date" style="'+inp+'"></div></div>'
-    +'<div style="margin-bottom:10px"><label style="font-size:11px;font-weight:700;color:#9B9B9B;text-transform:uppercase;display:block;margin-bottom:4px">How do you know them?</label><input id="ac-nt" style="'+inp+'" placeholder="Met at Tim\'s BBQ…"></div>'
+    +'<div><label style="font-size:11px;font-weight:700;color:var(--text-mid);text-transform:uppercase;display:block;margin-bottom:4px">Phone</label><input id="ac-ph" style="'+inp+'" placeholder="+1 555-0000"></div>'
+    +'<div><label style="font-size:11px;font-weight:700;color:var(--text-mid);text-transform:uppercase;display:block;margin-bottom:4px">Birthday</label><input id="ac-bd" type="date" style="'+inp+'"></div></div>'
+    +'<div style="margin-bottom:10px"><label style="font-size:11px;font-weight:700;color:var(--text-mid);text-transform:uppercase;display:block;margin-bottom:4px">How do you know them?</label><input id="ac-nt" style="'+inp+'" placeholder="Met at Tim\'s BBQ…"></div>'
     +'<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px">'
-    +'<div><label style="font-size:11px;font-weight:700;color:#9B9B9B;text-transform:uppercase;display:block;margin-bottom:4px">Nudge every (days)</label><input id="ac-nd" type="number" value="30" style="'+inp+'"></div>'
-    +'<div><label style="font-size:11px;font-weight:700;color:#9B9B9B;text-transform:uppercase;display:block;margin-bottom:4px">Color</label><div style="display:flex;gap:7px;margin-top:4px">'
-    +COLORS.map(function(col){return '<div onclick="S.addColor=\''+col+'\';render()" style="width:24px;height:24px;border-radius:50%;background:'+col+';cursor:pointer;border:'+(S.addColor===col?"3px solid #333":"3px solid transparent")+'"></div>';}).join("")
+    +'<div><label style="font-size:11px;font-weight:700;color:var(--text-mid);text-transform:uppercase;display:block;margin-bottom:4px">Nudge every (days)</label><input id="ac-nd" type="number" value="30" style="'+inp+'"></div>'
+    +'<div><label style="font-size:11px;font-weight:700;color:var(--text-mid);text-transform:uppercase;display:block;margin-bottom:4px">Color</label><div style="display:flex;gap:7px;margin-top:4px">'
+    +COLORS.map(function(col){return '<div onclick="S.addColor=\''+col+'\';render()" style="width:24px;height:24px;border-radius:50%;background:'+col+';cursor:pointer;border:'+(S.addColor===col?"3px solid var(--text)":"3px solid transparent")+'"></div>';}).join("")
     +'</div></div></div>'
-    +'<div style="margin-bottom:16px"><label style="font-size:11px;font-weight:700;color:#9B9B9B;text-transform:uppercase;display:block;margin-bottom:7px">Groups</label><div style="display:flex;gap:6px;flex-wrap:wrap">'
-    +["bbq","friends","kids","family","work"].map(function(t){return '<button onclick="window._tt(\''+t+'\')" style="padding:5px 10px;border-radius:20px;border:1.5px solid '+(S.addTags.includes(t)?"#FF6B35":"#E0E0E0")+';background:'+(S.addTags.includes(t)?"#FF6B35":"#fff")+';color:'+(S.addTags.includes(t)?"#fff":"#9B9B9B")+';font-weight:700;font-size:12px;cursor:pointer">'+(TAG_META[t]?TAG_META[t].label:t)+'</button>';}).join("")
+    +'<div style="margin-bottom:16px"><label style="font-size:11px;font-weight:700;color:var(--text-mid);text-transform:uppercase;display:block;margin-bottom:7px">Groups</label><div style="display:flex;gap:6px;flex-wrap:wrap">'
+    +["bbq","friends","kids","family","work"].map(function(t){return '<button onclick="window._tt(\''+t+'\')" style="padding:5px 10px;border-radius:20px;border:1.5px solid '+(S.addTags.includes(t)?"var(--accent)":"var(--border)")+';background:'+(S.addTags.includes(t)?"var(--accent)":"var(--panel2)")+';color:'+(S.addTags.includes(t)?"var(--bg)":"var(--text-mid)")+';font-weight:700;font-size:12px;cursor:pointer">'+(TAG_META[t]?TAG_META[t].label:t)+'</button>';}).join("")
     +'</div></div>'
-    +'<div style="display:flex;gap:10px"><button onclick="S.showAdd=false;render()" style="flex:1;padding:11px;border-radius:12px;border:1.5px solid #E0E0E0;background:#fff;font-weight:700;cursor:pointer;color:#9B9B9B">Cancel</button>'
-    +'<button onclick="window._sc()" style="flex:2;padding:11px;border-radius:12px;border:none;background:#FF6B35;color:#fff;font-weight:800;font-size:14px;cursor:pointer;font-family:Nunito,sans-serif">Add to Inner Circle 🔥</button></div>'
+    +'<div style="display:flex;gap:10px"><button onclick="S.showAdd=false;render()" style="flex:1;padding:11px;border-radius:12px;border:1.5px solid var(--border);background:var(--panel2);font-weight:700;cursor:pointer;color:var(--text-mid)">Cancel</button>'
+    +'<button onclick="window._sc()" style="flex:2;padding:11px;border-radius:12px;border:none;background:var(--accent);color:var(--bg);font-weight:800;font-size:14px;cursor:pointer;font-family:var(--font-display)">Add to Inner Circle 🔥</button></div>'
     +'</div></div>';
 }
 
@@ -414,28 +505,28 @@ function groupTextModalHTML(){
   var crew=S.contacts.filter(function(c){return(c.tags||[]).includes(tag);});
   var withPhone=crew.filter(function(c){return c.phone;}).length;
   return '<div style="position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:500;display:flex;align-items:center;justify-content:center;padding:16px">'
-    +'<div style="background:#fff;border-radius:18px;padding:22px;width:100%;max-width:460px;max-height:90vh;overflow-y:auto;font-family:Nunito Sans,sans-serif">'
-    +'<div style="font-size:18px;font-weight:900;margin-bottom:4px;font-family:Nunito,sans-serif">💬 Group Text</div>'
-    +'<div style="font-size:12px;color:#9B9B9B;margin-bottom:12px">Draft once, then open each chat in Messages.</div>'
+    +'<div style="background:#fff;border-radius:18px;padding:22px;width:100%;max-width:460px;max-height:90vh;overflow-y:auto;font-family:var(--font-body)">'
+    +'<div style="font-size:18px;font-weight:900;margin-bottom:4px;font-family:var(--font-display)">💬 Group Text</div>'
+    +'<div style="font-size:12px;color:var(--text-mid);margin-bottom:12px">Draft once, then open each chat in Messages.</div>'
     +'<div style="display:flex;flex-wrap:wrap;gap:5px;margin-bottom:14px">'
-    +["bbq","friends","kids","family","work"].map(function(t){var m=TAG_META[t]||{label:t};return '<button onclick="window._gtt(\''+t+'\')" style="padding:5px 10px;border-radius:20px;border:1.5px solid '+(tag===t?"#FF6B35":"#E0E0E0")+';background:'+(tag===t?"#FF6B35":"#fff")+';color:'+(tag===t?"#fff":"#9B9B9B")+';font-weight:700;font-size:12px;cursor:pointer">'+m.label+'</button>';}).join("")
+    +["bbq","friends","kids","family","work"].map(function(t){var m=TAG_META[t]||{label:t};return '<button onclick="window._gtt(\''+t+'\')" style="padding:5px 10px;border-radius:20px;border:1.5px solid '+(tag===t?"var(--accent)":"var(--border)")+';background:'+(tag===t?"var(--accent)":"var(--panel2)")+';color:'+(tag===t?"var(--bg)":"var(--text-mid)")+';font-weight:700;font-size:12px;cursor:pointer">'+m.label+'</button>';}).join("")
     +'</div>'
     +(crew.length?
-      (S.groupTextLoading?'<div style="display:flex;align-items:center;gap:10px;padding:16px;background:#FFF8F5;border-radius:12px;margin-bottom:12px;font-size:13px;color:#9B9B9B;font-style:italic"><div style="width:14px;height:14px;border:2px solid #E0E0E0;border-top-color:#FF6B35;border-radius:50%;animation:spin 0.7s linear infinite;flex-shrink:0"></div>Drafting…</div>'
-        :(S.groupTextDraft?'<div style="background:#FFF3E0;border:1.5px solid #FFB74D;border-radius:12px;padding:12px;font-size:13px;color:#E65100;line-height:1.7;font-style:italic;margin-bottom:10px">'+S.groupTextDraft.replace(/</g,"&lt;")+'</div>'
-          +'<div style="display:flex;gap:8px;margin-bottom:14px"><button onclick="window._cpgt()" id="cpgt" style="padding:7px 12px;border-radius:10px;border:1.5px solid #E0E0E0;background:#fff;font-size:12px;cursor:pointer">📋 Copy</button><button onclick="window._gtd()" style="padding:7px 12px;border-radius:10px;border:1.5px solid #E0E0E0;background:#fff;font-size:12px;cursor:pointer;color:#9B9B9B">↺ New draft</button></div>'
-          :'<button onclick="window._gtd()" style="width:100%;padding:11px;border-radius:12px;border:none;background:#9B59B6;color:#fff;font-weight:800;font-size:14px;cursor:pointer;margin-bottom:14px;font-family:Nunito,sans-serif">✨ Draft a message</button>'))
+      (S.groupTextLoading?'<div style="display:flex;align-items:center;gap:10px;padding:16px;background:var(--panel2);border-radius:12px;margin-bottom:12px;font-size:13px;color:var(--text-mid);font-style:italic"><div style="width:14px;height:14px;border:2px solid var(--border);border-top-color:var(--accent);border-radius:50%;animation:spin 0.7s linear infinite;flex-shrink:0"></div>Drafting…</div>'
+        :(S.groupTextDraft?'<div style="background:rgba(245,158,11,0.1);border:1.5px solid var(--amber);border-radius:12px;padding:12px;font-size:13px;color:#E65100;line-height:1.7;font-style:italic;margin-bottom:10px">'+S.groupTextDraft.replace(/</g,"&lt;")+'</div>'
+          +'<div style="display:flex;gap:8px;margin-bottom:14px"><button onclick="window._cpgt()" id="cpgt" style="padding:7px 12px;border-radius:10px;border:1.5px solid var(--border);background:#fff;font-size:12px;cursor:pointer">📋 Copy</button><button onclick="window._gtd()" style="padding:7px 12px;border-radius:10px;border:1.5px solid var(--border);background:#fff;font-size:12px;cursor:pointer;color:var(--text-mid)">↺ New draft</button></div>'
+          :'<button onclick="window._gtd()" style="width:100%;padding:11px;border-radius:12px;border:none;background:#9B59B6;color:#fff;font-weight:800;font-size:14px;cursor:pointer;margin-bottom:14px;font-family:var(--font-display)">✨ Draft a message</button>'))
       :'')
-    +(crew.length?'<div style="font-size:10px;font-weight:800;color:#9B9B9B;text-transform:uppercase;letter-spacing:1.5px;margin-bottom:8px">Open in Messages ('+withPhone+'/'+crew.length+' have a number)</div>':'<div style="text-align:center;padding:24px;color:#9B9B9B;font-size:13px">No one in this group yet.</div>')
+    +(crew.length?'<div style="font-size:10px;font-weight:800;color:var(--text-mid);text-transform:uppercase;letter-spacing:1.5px;margin-bottom:8px">Open in Messages ('+withPhone+'/'+crew.length+' have a number)</div>':'<div style="text-align:center;padding:24px;color:var(--text-mid);font-size:13px">No one in this group yet.</div>')
     +crew.map(function(c){
       var sms=c.phone?'href="sms:+'+telDigits(c.phone)+(S.groupTextDraft?"?body="+encodeURIComponent(S.groupTextDraft):"")+'"':"";
-      return '<'+(sms?"a "+sms:'div')+' style="display:flex;align-items:center;gap:10px;padding:9px 12px;border-radius:10px;background:#FAFAFA;border:1px solid #F0E8DF;margin-bottom:6px;text-decoration:none;color:inherit;opacity:'+(sms?"1":"0.55")+'">'
+      return '<'+(sms?"a "+sms:'div')+' style="display:flex;align-items:center;gap:10px;padding:9px 12px;border-radius:10px;background:var(--panel2);border:1px solid var(--border);margin-bottom:6px;text-decoration:none;color:inherit;opacity:'+(sms?"1":"0.55")+'">'
         +'<div style="width:34px;height:34px;border-radius:50%;background:'+c.color+'22;color:'+c.color+';display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:900;flex-shrink:0">'+ini(c)+'</div>'
         +'<div style="flex:1;font-weight:700;font-size:13px">'+c.fname+' '+c.lname+'</div>'
-        +(sms?'<span style="font-size:18px">📱</span>':'<span style="font-size:11px;color:#C4B5A8">no #</span>')
+        +(sms?'<span style="font-size:18px">📱</span>':'<span style="font-size:11px;color:var(--text-dim)">no #</span>')
         +'</'+(sms?"a":"div")+'>';
     }).join("")
-    +'<button onclick="S.showGroupText=false;render()" style="width:100%;padding:11px;border-radius:12px;border:1.5px solid #E0E0E0;background:#fff;font-weight:700;cursor:pointer;color:#9B9B9B;margin-top:8px">Done</button>'
+    +'<button onclick="S.showGroupText=false;render()" style="width:100%;padding:11px;border-radius:12px;border:1.5px solid var(--border);background:#fff;font-weight:700;cursor:pointer;color:var(--text-mid);margin-top:8px">Done</button>'
     +'</div></div>';
 }
 
@@ -444,33 +535,33 @@ function importModalHTML(){
   var parsed=S.importParsed;
   var selCount=parsed.filter(function(p){return p._sel;}).length;
   var h='<div style="position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:600;display:flex;align-items:center;justify-content:center;padding:16px">'
-    +'<div style="background:#fff;border-radius:18px;padding:22px;width:100%;max-width:480px;max-height:90vh;overflow-y:auto;font-family:Nunito Sans,sans-serif">'
-    +'<div style="font-size:18px;font-weight:900;margin-bottom:4px;font-family:Nunito,sans-serif">📥 Import Contacts</div>'
-    +'<div style="font-size:12px;color:#9B9B9B;margin-bottom:14px;line-height:1.5">In Apple Contacts: select people → File → Export → Export vCard. Then pick that <b>.vcf</b> file here.</div>';
+    +'<div style="background:#fff;border-radius:18px;padding:22px;width:100%;max-width:480px;max-height:90vh;overflow-y:auto;font-family:var(--font-body)">'
+    +'<div style="font-size:18px;font-weight:900;margin-bottom:4px;font-family:var(--font-display)">📥 Import Contacts</div>'
+    +'<div style="font-size:12px;color:var(--text-mid);margin-bottom:14px;line-height:1.5">In Apple Contacts: select people → File → Export → Export vCard. Then pick that <b>.vcf</b> file here.</div>';
   if(!parsed.length){
-    h+='<label style="display:block;border:1.5px dashed #E8C4B0;border-radius:14px;padding:28px 16px;text-align:center;cursor:pointer;background:#FFFBF8">'
+    h+='<label style="display:block;border:1.5px dashed #E8C4B0;border-radius:14px;padding:28px 16px;text-align:center;cursor:pointer;background:var(--panel2)">'
       +'<input type="file" accept=".vcf,.vcard,text/vcard,text/x-vcard" onchange="window._impFile(this)" style="display:none">'
       +'<div style="font-size:34px;margin-bottom:8px">📇</div>'
-      +'<div style="font-weight:800;font-size:14px;color:#FF6B35;font-family:Nunito,sans-serif">Choose a .vcf file</div>'
-      +'<div style="font-size:12px;color:#9B9B9B;margin-top:4px">We\'ll show you a preview before adding anyone</div>'
+      +'<div style="font-weight:800;font-size:14px;color:#FF6B35;font-family:var(--font-display)">Choose a .vcf file</div>'
+      +'<div style="font-size:12px;color:var(--text-mid);margin-top:4px">We\'ll show you a preview before adding anyone</div>'
       +'</label>';
   } else {
-    h+='<div style="margin-bottom:12px"><div style="font-size:11px;font-weight:700;color:#9B9B9B;text-transform:uppercase;margin-bottom:7px">Add everyone to a group (optional)</div><div style="display:flex;gap:6px;flex-wrap:wrap">'
-      +["bbq","friends","kids","family","work"].map(function(t){var m=TAG_META[t]||{label:t};return '<button onclick="window._impTag(\''+t+'\')" style="padding:5px 10px;border-radius:20px;border:1.5px solid '+(S.importTags.includes(t)?"#FF6B35":"#E0E0E0")+';background:'+(S.importTags.includes(t)?"#FF6B35":"#fff")+';color:'+(S.importTags.includes(t)?"#fff":"#9B9B9B")+';font-weight:700;font-size:12px;cursor:pointer">'+m.label+'</button>';}).join("")
+    h+='<div style="margin-bottom:12px"><div style="font-size:11px;font-weight:700;color:var(--text-mid);text-transform:uppercase;margin-bottom:7px">Add everyone to a group (optional)</div><div style="display:flex;gap:6px;flex-wrap:wrap">'
+      +["bbq","friends","kids","family","work"].map(function(t){var m=TAG_META[t]||{label:t};return '<button onclick="window._impTag(\''+t+'\')" style="padding:5px 10px;border-radius:20px;border:1.5px solid '+(S.importTags.includes(t)?"var(--accent)":"var(--border)")+';background:'+(S.importTags.includes(t)?"var(--accent)":"var(--panel2)")+';color:'+(S.importTags.includes(t)?"var(--bg)":"var(--text-mid)")+';font-weight:700;font-size:12px;cursor:pointer">'+m.label+'</button>';}).join("")
       +'</div></div>'
-      +'<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px"><div style="font-size:13px;font-weight:800">'+selCount+' of '+parsed.length+' selected</div><div style="display:flex;gap:6px"><button onclick="window._impAll(true)" style="padding:4px 9px;border-radius:8px;border:1.5px solid #E0E0E0;background:#fff;font-size:11px;cursor:pointer;font-weight:700;color:#6B6B6B">All</button><button onclick="window._impAll(false)" style="padding:4px 9px;border-radius:8px;border:1.5px solid #E0E0E0;background:#fff;font-size:11px;cursor:pointer;font-weight:700;color:#6B6B6B">None</button></div></div>'
-      +'<div style="max-height:38vh;overflow-y:auto;border:1px solid #F0E8DF;border-radius:12px;padding:6px;margin-bottom:14px">';
+      +'<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px"><div style="font-size:13px;font-weight:800">'+selCount+' of '+parsed.length+' selected</div><div style="display:flex;gap:6px"><button onclick="window._impAll(true)" style="padding:4px 9px;border-radius:8px;border:1.5px solid var(--border);background:#fff;font-size:11px;cursor:pointer;font-weight:700;color:var(--text-mid)">All</button><button onclick="window._impAll(false)" style="padding:4px 9px;border-radius:8px;border:1.5px solid var(--border);background:#fff;font-size:11px;cursor:pointer;font-weight:700;color:var(--text-mid)">None</button></div></div>'
+      +'<div style="max-height:38vh;overflow-y:auto;border:1px solid var(--border);border-radius:12px;padding:6px;margin-bottom:14px">';
     parsed.forEach(function(p,i){
-      h+='<label style="display:flex;align-items:center;gap:10px;padding:8px 10px;border-radius:8px;cursor:pointer;background:'+(p._sel?"#FFFBF8":"transparent")+'">'
-        +'<input type="checkbox" '+(p._sel?"checked":"")+' onchange="window._impTog('+i+')" style="width:16px;height:16px;cursor:pointer;accent-color:#FF6B35;flex-shrink:0">'
-        +'<div style="flex:1;min-width:0"><div style="font-weight:700;font-size:13px;color:#2C2C2C">'+escH((p.fname+" "+p.lname).trim()||"(no name)")+(p._dup?' <span style="font-size:10px;font-weight:700;color:#E67E22;background:#FDF0E1;padding:1px 6px;border-radius:10px">already added</span>':"")+'</div>'
-        +'<div style="font-size:11px;color:#9B9B9B">'+(p.phone?"+"+escH(p.phone):"no number")+(p.birthday?" · 🎂 "+escH(fmtB(p.birthday)||p.birthday):"")+'</div></div>'
+      h+='<label style="display:flex;align-items:center;gap:10px;padding:8px 10px;border-radius:8px;cursor:pointer;background:'+(p._sel?"var(--panel2)":"transparent")+'">'
+        +'<input type="checkbox" '+(p._sel?"checked":"")+' onchange="window._impTog('+i+')" style="width:16px;height:16px;cursor:pointer;accent-color:var(--accent);flex-shrink:0">'
+        +'<div style="flex:1;min-width:0"><div style="font-weight:700;font-size:13px;color:var(--text)">'+escH((p.fname+" "+p.lname).trim()||"(no name)")+(p._dup?' <span style="font-size:10px;font-weight:700;color:var(--amber);background:rgba(245,158,11,0.15);padding:1px 6px;border-radius:10px">already added</span>':"")+'</div>'
+        +'<div style="font-size:11px;color:var(--text-mid)">'+(p.phone?"+"+escH(p.phone):"no number")+(p.birthday?" · 🎂 "+escH(fmtB(p.birthday)||p.birthday):"")+'</div></div>'
         +'</label>';
     });
     h+='</div>';
   }
-  h+='<div style="display:flex;gap:10px"><button onclick="window._impClose()" style="flex:1;padding:11px;border-radius:12px;border:1.5px solid #E0E0E0;background:#fff;font-weight:700;cursor:pointer;color:#9B9B9B">'+(parsed.length?"Cancel":"Close")+'</button>'
-    +(parsed.length?'<button onclick="window._impGo()" style="flex:2;padding:11px;border-radius:12px;border:none;background:'+((selCount&&!S.importing)?"#FF6B35":"#ccc")+';color:#fff;font-weight:800;font-size:14px;cursor:'+((selCount&&!S.importing)?"pointer":"default")+';font-family:Nunito,sans-serif">'+(S.importing?"Importing…":"Import "+selCount+" 🔥")+'</button>':"")
+  h+='<div style="display:flex;gap:10px"><button onclick="window._impClose()" style="flex:1;padding:11px;border-radius:12px;border:1.5px solid var(--border);background:#fff;font-weight:700;cursor:pointer;color:var(--text-mid)">'+(parsed.length?"Cancel":"Close")+'</button>'
+    +(parsed.length?'<button onclick="window._impGo()" style="flex:2;padding:11px;border-radius:12px;border:none;background:'+((selCount&&!S.importing)?"#FF6B35":"#ccc")+';color:#fff;font-weight:800;font-size:14px;cursor:'+((selCount&&!S.importing)?"pointer":"default")+';font-family:var(--font-display)">'+(S.importing?"Importing…":"Import "+selCount+" 🔥")+'</button>':"")
     +'</div></div></div>';
   return h;
 }
@@ -479,41 +570,41 @@ function apiKeyModalHTML(){
   if(!S.showApiKey)return "";
   var hasKey=!!getApiKey();
   return '<div style="position:fixed;inset:0;background:rgba(0,0,0,0.55);z-index:500;display:flex;align-items:center;justify-content:center;padding:16px">'
-    +'<div style="background:#fff;border-radius:18px;padding:22px;width:100%;max-width:400px;font-family:Nunito Sans,sans-serif">'
-    +'<div style="font-size:18px;font-weight:900;margin-bottom:6px;font-family:Nunito,sans-serif">🔑 Anthropic API Key</div>'
-    +'<div style="font-size:13px;color:#9B9B9B;margin-bottom:14px;line-height:1.5">Your key is saved in this browser only — never sent anywhere except Anthropic.</div>'
-    +(hasKey?'<div style="font-size:12px;font-weight:700;color:#27AE60;margin-bottom:10px">✅ Key currently saved</div>':"")
-    +'<input id="ak-input" type="password" placeholder="sk-ant-api03-…" style="width:100%;border:1.5px solid #E8E0D8;border-radius:10px;padding:10px 12px;font-size:13px;outline:none;margin-bottom:12px;box-sizing:border-box;font-family:monospace">'
+    +'<div style="background:#fff;border-radius:18px;padding:22px;width:100%;max-width:400px;font-family:var(--font-body)">'
+    +'<div style="font-size:18px;font-weight:900;margin-bottom:6px;font-family:var(--font-display)">🔑 Anthropic API Key</div>'
+    +'<div style="font-size:13px;color:var(--text-mid);margin-bottom:14px;line-height:1.5">Your key is saved in this browser only — never sent anywhere except Anthropic.</div>'
+    +(hasKey?'<div style="font-size:12px;font-weight:700;color:var(--green);margin-bottom:10px">✅ Key currently saved</div>':"")
+    +'<input id="ak-input" type="password" placeholder="sk-ant-api03-…" style="width:100%;border:1.5px solid var(--border);border-radius:10px;padding:10px 12px;font-size:13px;outline:none;margin-bottom:12px;box-sizing:border-box;font-family:monospace">'
     +'<div style="display:flex;gap:10px">'
-    +'<button onclick="S.showApiKey=false;render()" style="flex:1;padding:11px;border-radius:12px;border:1.5px solid #E0E0E0;background:#fff;font-weight:700;cursor:pointer;color:#9B9B9B">Cancel</button>'
-    +'<button onclick="window._sak()" style="flex:2;padding:11px;border-radius:12px;border:none;background:#FF6B35;color:#fff;font-weight:800;font-size:14px;cursor:pointer;font-family:Nunito,sans-serif">Save Key</button>'
+    +'<button onclick="S.showApiKey=false;render()" style="flex:1;padding:11px;border-radius:12px;border:1.5px solid var(--border);background:var(--panel2);font-weight:700;cursor:pointer;color:var(--text-mid)">Cancel</button>'
+    +'<button onclick="window._sak()" style="flex:2;padding:11px;border-radius:12px;border:none;background:var(--accent);color:var(--bg);font-weight:800;font-size:14px;cursor:pointer;font-family:var(--font-display)">Save Key</button>'
     +'</div></div></div>';
 }
 
 function editModalHTML(){
   if(!S.showEdit||!S.detail)return "";
   var c=S.detail;
-  var inp="width:100%;border:1.5px solid #E8E0D8;border-radius:10px;padding:9px 12px;font-size:14px;color:#2C2C2C;outline:none;font-family:Nunito Sans,sans-serif;box-sizing:border-box;background:#FAFAFA";
+  var inp="width:100%;border:1.5px solid var(--border);border-radius:10px;padding:9px 12px;font-size:14px;color:var(--text);outline:none;font-family:var(--font-body);box-sizing:border-box;background:var(--panel2)";
   return '<div style="position:fixed;inset:0;background:rgba(0,0,0,0.55);z-index:400;display:flex;align-items:center;justify-content:center;padding:16px">'
-    +'<div style="background:#fff;border-radius:18px;padding:22px;width:100%;max-width:460px;max-height:90vh;overflow-y:auto;font-family:Nunito Sans,sans-serif">'
-    +'<div style="font-size:18px;font-weight:900;margin-bottom:16px;font-family:Nunito,sans-serif">Edit Contact ✏️</div>'
+    +'<div style="background:#fff;border-radius:18px;padding:22px;width:100%;max-width:460px;max-height:90vh;overflow-y:auto;font-family:var(--font-body)">'
+    +'<div style="font-size:18px;font-weight:900;margin-bottom:16px;font-family:var(--font-display)">Edit Contact ✏️</div>'
     +'<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px">'
-    +'<div><label style="font-size:11px;font-weight:700;color:#9B9B9B;text-transform:uppercase;display:block;margin-bottom:4px">First Name</label><input id="ec-fn" value="'+escH(c.fname||"")+'" style="'+inp+'"></div>'
-    +'<div><label style="font-size:11px;font-weight:700;color:#9B9B9B;text-transform:uppercase;display:block;margin-bottom:4px">Last Name</label><input id="ec-ln" value="'+escH(c.lname||"")+'" style="'+inp+'"></div></div>'
+    +'<div><label style="font-size:11px;font-weight:700;color:var(--text-mid);text-transform:uppercase;display:block;margin-bottom:4px">First Name</label><input id="ec-fn" value="'+escH(c.fname||"")+'" style="'+inp+'"></div>'
+    +'<div><label style="font-size:11px;font-weight:700;color:var(--text-mid);text-transform:uppercase;display:block;margin-bottom:4px">Last Name</label><input id="ec-ln" value="'+escH(c.lname||"")+'" style="'+inp+'"></div></div>'
     +'<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px">'
-    +'<div><label style="font-size:11px;font-weight:700;color:#9B9B9B;text-transform:uppercase;display:block;margin-bottom:4px">Phone</label><input id="ec-ph" value="'+escH(c.phone||"")+'" style="'+inp+'"></div>'
-    +'<div><label style="font-size:11px;font-weight:700;color:#9B9B9B;text-transform:uppercase;display:block;margin-bottom:4px">Birthday</label><input id="ec-bd" type="date" value="'+(c.birthday||"")+'" style="'+inp+'"></div></div>'
-    +'<div style="margin-bottom:10px"><label style="font-size:11px;font-weight:700;color:#9B9B9B;text-transform:uppercase;display:block;margin-bottom:4px">How do you know them?</label><input id="ec-nt" value="'+escH(c.note||"")+'" style="'+inp+'"></div>'
-    +'<div style="margin-bottom:10px"><label style="font-size:11px;font-weight:700;color:#9B9B9B;text-transform:uppercase;display:block;margin-bottom:4px">Nudge every (days)</label><input id="ec-nd" type="number" value="'+(c.nudgeDays||30)+'" style="'+inp+'"></div>'
-    +'<div style="margin-bottom:10px"><label style="font-size:11px;font-weight:700;color:#9B9B9B;text-transform:uppercase;display:block;margin-bottom:4px">Color</label><div style="display:flex;gap:7px;margin-top:4px">'
-    +COLORS.map(function(col){return '<div onclick="S.editColor=\''+col+'\';render()" style="width:28px;height:28px;border-radius:50%;background:'+col+';cursor:pointer;border:'+(S.editColor===col?"3px solid #333":"3px solid transparent")+'"></div>';}).join("")
+    +'<div><label style="font-size:11px;font-weight:700;color:var(--text-mid);text-transform:uppercase;display:block;margin-bottom:4px">Phone</label><input id="ec-ph" value="'+escH(c.phone||"")+'" style="'+inp+'"></div>'
+    +'<div><label style="font-size:11px;font-weight:700;color:var(--text-mid);text-transform:uppercase;display:block;margin-bottom:4px">Birthday</label><input id="ec-bd" type="date" value="'+(c.birthday||"")+'" style="'+inp+'"></div></div>'
+    +'<div style="margin-bottom:10px"><label style="font-size:11px;font-weight:700;color:var(--text-mid);text-transform:uppercase;display:block;margin-bottom:4px">How do you know them?</label><input id="ec-nt" value="'+escH(c.note||"")+'" style="'+inp+'"></div>'
+    +'<div style="margin-bottom:10px"><label style="font-size:11px;font-weight:700;color:var(--text-mid);text-transform:uppercase;display:block;margin-bottom:4px">Nudge every (days)</label><input id="ec-nd" type="number" value="'+(c.nudgeDays||30)+'" style="'+inp+'"></div>'
+    +'<div style="margin-bottom:10px"><label style="font-size:11px;font-weight:700;color:var(--text-mid);text-transform:uppercase;display:block;margin-bottom:4px">Color</label><div style="display:flex;gap:7px;margin-top:4px">'
+    +COLORS.map(function(col){return '<div onclick="S.editColor=\''+col+'\';render()" style="width:28px;height:28px;border-radius:50%;background:'+col+';cursor:pointer;border:'+(S.editColor===col?"3px solid var(--text)":"3px solid transparent")+'"></div>';}).join("")
     +'</div></div>'
-    +'<div style="margin-bottom:16px"><label style="font-size:11px;font-weight:700;color:#9B9B9B;text-transform:uppercase;display:block;margin-bottom:7px">Groups</label><div style="display:flex;gap:6px;flex-wrap:wrap">'
-    +["bbq","friends","kids","family","work"].map(function(t){return '<button onclick="window._et(\''+t+'\')" style="padding:5px 10px;border-radius:20px;border:1.5px solid '+(S.editTags.includes(t)?"#FF6B35":"#E0E0E0")+';background:'+(S.editTags.includes(t)?"#FF6B35":"#fff")+';color:'+(S.editTags.includes(t)?"#fff":"#9B9B9B")+';font-weight:700;font-size:12px;cursor:pointer">'+(TAG_META[t]?TAG_META[t].label:t)+'</button>';}).join("")
+    +'<div style="margin-bottom:16px"><label style="font-size:11px;font-weight:700;color:var(--text-mid);text-transform:uppercase;display:block;margin-bottom:7px">Groups</label><div style="display:flex;gap:6px;flex-wrap:wrap">'
+    +["bbq","friends","kids","family","work"].map(function(t){return '<button onclick="window._et(\''+t+'\')" style="padding:5px 10px;border-radius:20px;border:1.5px solid '+(S.editTags.includes(t)?"var(--accent)":"var(--border)")+';background:'+(S.editTags.includes(t)?"var(--accent)":"var(--panel2)")+';color:'+(S.editTags.includes(t)?"var(--bg)":"var(--text-mid)")+';font-weight:700;font-size:12px;cursor:pointer">'+(TAG_META[t]?TAG_META[t].label:t)+'</button>';}).join("")
     +'</div></div>'
-    +'<div style="display:flex;gap:10px;margin-bottom:10px"><button onclick="S.showEdit=false;render()" style="flex:1;padding:11px;border-radius:12px;border:1.5px solid #E0E0E0;background:#fff;font-weight:700;cursor:pointer;color:#9B9B9B">Cancel</button>'
-    +'<button onclick="window._sve()" style="flex:2;padding:11px;border-radius:12px;border:none;background:#FF6B35;color:#fff;font-weight:800;font-size:14px;cursor:pointer;font-family:Nunito,sans-serif">Save Changes ✅</button></div>'
-    +'<button onclick="window._dc()" style="width:100%;padding:10px;border-radius:12px;border:1.5px solid #FFCDD2;background:#fff;color:#E74C3C;font-weight:700;font-size:13px;cursor:pointer">🗑️ Delete Contact</button>'
+    +'<div style="display:flex;gap:10px;margin-bottom:10px"><button onclick="S.showEdit=false;render()" style="flex:1;padding:11px;border-radius:12px;border:1.5px solid var(--border);background:var(--panel2);font-weight:700;cursor:pointer;color:var(--text-mid)">Cancel</button>'
+    +'<button onclick="window._sve()" style="flex:2;padding:11px;border-radius:12px;border:none;background:var(--accent);color:var(--bg);font-weight:800;font-size:14px;cursor:pointer;font-family:var(--font-display)">Save Changes ✅</button></div>'
+    +'<button onclick="window._dc()" style="width:100%;padding:10px;border-radius:12px;border:1.5px solid rgba(239,68,68,0.3);background:rgba(239,68,68,0.08);color:var(--red);font-weight:700;font-size:13px;cursor:pointer">🗑️ Delete Contact</button>'
     +'</div></div>';
 }
 
@@ -521,25 +612,25 @@ function sidebarHTML(){
   var nl=nudgeList().length;
   function ni(v,icon,label,badge){
     var a=S.view===v&&S.group==="all";
-    return '<div onclick="window._sv(\''+v+'\')" style="display:flex;align-items:center;gap:10px;padding:9px 16px;cursor:pointer;font-size:13px;font-weight:600;color:'+(a?"#FF6B35":"#CDD6F4")+';background:'+(a?"rgba(255,107,53,0.12)":"transparent")+';border-left:3px solid '+(a?"#FF6B35":"transparent")+'"><span style="font-size:15px;width:20px;text-align:center">'+icon+'</span>'+label+(badge?'<span style="margin-left:auto;background:#FF6B35;color:#fff;font-size:10px;font-weight:800;padding:1px 6px;border-radius:20px">'+badge+'</span>':"")+'</div>';
+    return '<div onclick="window._sv(\''+v+'\')" style="display:flex;align-items:center;gap:10px;padding:9px 16px;cursor:pointer;font-size:13px;font-weight:600;color:'+(a?"var(--accent)":"var(--text-mid)")+';background:'+(a?"rgba(0,212,255,0.08)":"transparent")+';border-left:3px solid '+(a?"var(--accent)":"transparent")+'"><span style="font-size:15px;width:20px;text-align:center">'+icon+'</span>'+label+(badge?'<span style="margin-left:auto;background:var(--accent);color:var(--bg);font-size:10px;font-weight:800;padding:1px 6px;border-radius:20px">'+badge+'</span>':"")+'</div>';
   }
-  return '<div style="width:210px;background:#1E1E2E;display:flex;flex-direction:column;flex-shrink:0;overflow-y:auto;height:100vh">'
-    +'<div style="padding:20px 18px 12px;font-family:Nunito,sans-serif;font-size:17px;font-weight:900;color:#fff;border-bottom:1px solid rgba(255,255,255,0.08);display:flex;align-items:center;gap:8px"><span style="font-size:22px">🔥</span>Inner Circle</div>'
+  return '<div style="width:210px;background:var(--panel);border-right:1px solid var(--border);display:flex;flex-direction:column;flex-shrink:0;overflow-y:auto;height:100vh">'
+    +'<div style="padding:20px 18px 12px;font-family:var(--font-display);font-size:17px;font-weight:900;color:var(--accent);border-bottom:1px solid var(--border);display:flex;align-items:center;gap:8px"><span style="font-size:22px">🔥</span>Inner Circle</div>'
     +'<div style="padding:8px 12px 4px">'+syncBadge()+'</div>'
-    +'<div style="padding:10px 12px 4px;font-size:10px;font-weight:700;color:rgba(255,255,255,0.3);text-transform:uppercase;letter-spacing:1.5px">Menu</div>'
+    +'<div style="padding:10px 12px 4px;font-size:10px;font-weight:700;color:var(--text-dim);text-transform:uppercase;letter-spacing:1.5px">Menu</div>'
     +ni("dashboard","🏠","Dashboard")
     +ni("contacts","👥","Contacts")
     +ni("upcoming","📅","Upcoming")
     +ni("birthdays","🎂","Birthdays")
     +ni("nudges","💬","Nudges",nl||"")
-    +'<div style="padding:10px 12px 4px;font-size:10px;font-weight:700;color:rgba(255,255,255,0.3);text-transform:uppercase;letter-spacing:1.5px;margin-top:8px">Groups</div>'
-    +GROUPS.map(function(g){var a=S.view==="contacts"&&S.group===g.id;return '<div onclick="window._sg2(\''+g.id+'\')" style="display:flex;align-items:center;gap:10px;padding:9px 16px;cursor:pointer;font-size:13px;font-weight:600;color:'+(a?"#FF6B35":"#CDD6F4")+';background:'+(a?"rgba(255,107,53,0.12)":"transparent")+';border-left:3px solid '+(a?"#FF6B35":"transparent")+'"><span style="font-size:15px;width:20px;text-align:center">'+g.icon+'</span>'+g.label+'</div>';}).join("")
+    +'<div style="padding:10px 12px 4px;font-size:10px;font-weight:700;color:var(--text-dim);text-transform:uppercase;letter-spacing:1.5px;margin-top:8px">Groups</div>'
+    +GROUPS.map(function(g){var a=S.view==="contacts"&&S.group===g.id;return '<div onclick="window._sg2(\''+g.id+'\')" style="display:flex;align-items:center;gap:10px;padding:9px 16px;cursor:pointer;font-size:13px;font-weight:600;color:'+(a?"var(--accent)":"var(--text-mid)")+';background:'+(a?"rgba(0,212,255,0.08)":"transparent")+';border-left:3px solid '+(a?"var(--accent)":"transparent")+'"><span style="font-size:15px;width:20px;text-align:center">'+g.icon+'</span>'+g.label+'</div>';}).join("")
     +'<div style="flex:1"></div>'
-    +'<div style="padding:12px 16px;border-top:1px solid rgba(255,255,255,0.06)">'
-    +(getApiKey()?'<div style="font-size:11px;color:#27AE60;font-weight:700;margin-bottom:6px">✅ AI connected</div>':'<div style="font-size:11px;color:#E74C3C;font-weight:700;margin-bottom:6px">⚠️ AI key not set</div>')
-    +'<button onclick="window._sk()" style="width:100%;padding:7px;border-radius:8px;border:1px solid rgba(255,255,255,0.15);background:rgba(255,255,255,0.07);color:rgba(255,255,255,0.6);font-size:11px;cursor:pointer;font-weight:700">'+(getApiKey()?"🔑 Update API Key":"🔑 Set API Key")+'</button>'
-    +(("Notification" in window)?'<button onclick="window._notif()" style="width:100%;padding:7px;border-radius:8px;border:1px solid rgba(255,255,255,0.15);background:rgba(255,255,255,0.07);color:rgba(255,255,255,0.6);font-size:11px;cursor:pointer;font-weight:700;margin-top:6px">'+(S.notifEnabled?"🔔 Reminders on":"🔕 Enable reminders")+'</button>':"")
-    +'<button onclick="window._oi()" style="width:100%;padding:7px;border-radius:8px;border:1px solid rgba(255,255,255,0.15);background:rgba(255,255,255,0.07);color:rgba(255,255,255,0.6);font-size:11px;cursor:pointer;font-weight:700;margin-top:6px">📥 Import contacts</button>'
+    +'<div style="padding:12px 16px;border-top:1px solid var(--border)">'
+    +(getApiKey()?'<div style="font-size:11px;color:var(--green);font-weight:700;margin-bottom:6px">✅ AI connected</div>':'<div style="font-size:11px;color:var(--red);font-weight:700;margin-bottom:6px">⚠️ AI key not set</div>')
+    +'<button onclick="window._sk()" style="width:100%;padding:7px;border-radius:8px;border:1px solid var(--border);background:var(--panel2);color:var(--text-mid);font-size:11px;cursor:pointer;font-weight:700">'+(getApiKey()?"🔑 Update API Key":"🔑 Set API Key")+'</button>'
+    +(("Notification" in window)?'<button onclick="window._notif()" style="width:100%;padding:7px;border-radius:8px;border:1px solid var(--border);background:var(--panel2);color:var(--text-mid);font-size:11px;cursor:pointer;font-weight:700;margin-top:6px">'+(S.notifEnabled?"🔔 Reminders on":"🔕 Enable reminders")+'</button>':"")
+    +'<button onclick="window._oi()" style="width:100%;padding:7px;border-radius:8px;border:1px solid var(--border);background:var(--panel2);color:var(--text-mid);font-size:11px;cursor:pointer;font-weight:700;margin-top:6px">📥 Import contacts</button>'
     +'</div>'
     +'</div>';
 }
@@ -561,17 +652,17 @@ function render(){
   var isMobile=window.innerWidth<768;
 
   if(isMobile){
-    root.innerHTML='<div style="display:flex;flex-direction:column;height:100vh;height:100dvh;overflow:hidden;background:#FFF8F0">'
-      +'<div style="padding:12px 16px;background:#1E1E2E;display:flex;align-items:center;justify-content:space-between;flex-shrink:0">'
-      +'<div style="font-family:Nunito,sans-serif;font-size:16px;font-weight:900;color:#fff;display:flex;align-items:center;gap:8px"><span>🔥</span>'+title+'</div>'
-      +'<div style="display:flex;align-items:center;gap:8px">'+syncBadge()+'<button onclick="window._oa()" style="padding:7px 14px;border-radius:10px;border:none;background:#FF6B35;color:#fff;font-weight:800;font-size:13px;cursor:pointer;font-family:Nunito,sans-serif">+ Add</button></div>'
+    root.innerHTML='<div style="display:flex;flex-direction:column;height:100vh;height:100dvh;overflow:hidden;background:var(--bg)">'
+      +'<div style="padding:12px 16px;background:var(--panel);border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;flex-shrink:0">'
+      +'<div style="font-family:var(--font-display);font-size:16px;font-weight:900;color:#fff;display:flex;align-items:center;gap:8px"><span>🔥</span>'+title+'</div>'
+      +'<div style="display:flex;align-items:center;gap:8px">'+syncBadge()+'<button onclick="window._oa()" style="padding:7px 14px;border-radius:10px;border:none;background:var(--accent);color:var(--bg);font-weight:800;font-size:13px;cursor:pointer;font-family:var(--font-display)">+ Add</button></div>'
       +'</div>'
       +'<div style="flex:1;overflow-y:auto;padding:14px">'+viewHTML+'</div>'
-      +'<div style="display:flex;background:#1E1E2E;border-top:1px solid rgba(255,255,255,0.1);flex-shrink:0;padding-bottom:env(safe-area-inset-bottom)">'
+      +'<div style="display:flex;background:var(--panel);border-top:1px solid var(--border);flex-shrink:0;padding-bottom:env(safe-area-inset-bottom)">'
       +[["dashboard","🏠","Home"],["contacts","👥","People"],["upcoming","📅","Soon"],["birthdays","🎂","Bdays"],["nudges","💬","Nudges"]].map(function(x){
         var v=x[0],icon=x[1],label=x[2];
         var active=S.view===v;
-        return '<div onclick="window._sv(\''+v+'\')" style="flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:10px 4px 8px;cursor:pointer;position:relative;color:'+(active?"#FF6B35":"rgba(255,255,255,0.4)")+'"><span style="font-size:22px">'+icon+'</span><span style="font-size:10px;font-weight:700;margin-top:3px;font-family:Nunito,sans-serif">'+label+'</span>'+(v==="nudges"&&nl>0?'<span style="position:absolute;top:6px;right:calc(50% - 20px);background:#FF6B35;color:#fff;font-size:9px;font-weight:800;padding:1px 5px;border-radius:20px">'+nl+'</span>':"")+'</div>';
+        return '<div onclick="window._sv(\''+v+'\')" style="flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:10px 4px 8px;cursor:pointer;position:relative;color:'+(active?"var(--accent)":"var(--text-mid)")+'"><span style="font-size:22px">'+icon+'</span><span style="font-size:10px;font-weight:700;margin-top:3px;font-family:var(--font-display)">'+label+'</span>'+(v==="nudges"&&nl>0?'<span style="position:absolute;top:6px;right:calc(50% - 20px);background:var(--accent);color:var(--bg);font-size:9px;font-weight:800;padding:1px 5px;border-radius:20px">'+nl+'</span>':"")+'</div>';
       }).join("")
       +'</div>'
       +(S.detail?detailHTML():"")
@@ -583,9 +674,9 @@ function render(){
     root.innerHTML='<div style="display:flex;height:100vh;overflow:hidden">'
       +sidebarHTML()
       +'<div style="flex:1;display:flex;flex-direction:column;overflow:hidden">'
-      +'<div style="padding:16px 24px;background:#fff;border-bottom:1px solid #F0E8DF;display:flex;align-items:center;justify-content:space-between;flex-shrink:0">'
-      +'<div style="font-size:20px;font-weight:900;font-family:Nunito,sans-serif">'+title+'</div>'
-      +'<button onclick="window._oa()" style="padding:8px 16px;border-radius:10px;border:none;background:#FF6B35;color:#fff;font-weight:800;font-size:13px;cursor:pointer;font-family:Nunito,sans-serif">+ Add Contact</button>'
+      +'<div style="padding:16px 24px;background:var(--panel);border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;flex-shrink:0">'
+      +'<div style="font-size:20px;font-weight:900;font-family:var(--font-display)">'+title+'</div>'
+      +'<button onclick="window._oa()" style="padding:8px 16px;border-radius:10px;border:none;background:var(--accent);color:var(--bg);font-weight:800;font-size:13px;cursor:pointer;font-family:var(--font-display)">+ Add Contact</button>'
       +'</div>'
       +'<div style="flex:1;overflow-y:auto;padding:24px">'+viewHTML+'</div>'
       +'</div>'
@@ -600,6 +691,7 @@ function render(){
 // ── globals ──────────────────────────────────────────────────
 window.S=S;
 window.render=render;
+window.fetchOSData=fetchOSData;
 window._sv=function(v){S.view=v;S.group="all";render();};
 window._sg2=function(g){S.group=g;S.view="contacts";render();};
 window._od=function(id){S.detail=S.contacts.find(function(c){return c.id===id;})||null;S.draftText=null;S.draftLoading=false;S.noteAdding=false;S.giftAdding=false;render();};
