@@ -546,7 +546,7 @@ OURA_REFRESH  = 900  # poll Oura every 15 minutes
 _oura_cache   = {'data': None, 'ts': 0}
 
 def fetch_oura():
-    """Pull sleep + readiness from Oura Cloud. Cached 15 min; pushes to Firestore on each refresh."""
+    """Pull all available Oura data. Cached 15 min; pushes to Firestore on each refresh."""
     now = time.time()
     if _oura_cache['data'] is not None and (now - _oura_cache['ts'] < OURA_REFRESH):
         return _oura_cache['data']
@@ -554,6 +554,7 @@ def fetch_oura():
     headers = {'Authorization': f'Bearer {OURA_TOKEN}'}
     yesterday = (datetime.now() - timedelta(days=1)).strftime('%Y-%m-%d')
     today     = datetime.now().strftime('%Y-%m-%d')
+    week_ago  = (datetime.now() - timedelta(days=7)).strftime('%Y-%m-%d')
 
     def oura_get(path, params):
         qs = '&'.join(f'{k}={v}' for k, v in params.items())
@@ -561,8 +562,9 @@ def fetch_oura():
         with urllib.request.urlopen(req, timeout=15) as r:
             return json.loads(r.read())
 
-    result = {'date': yesterday}
+    result = {'ok': True, 'date': yesterday}
 
+    # ── Sleep ─────────────────────────────────────────────────────
     try:
         d = oura_get('daily_sleep', {'start_date': yesterday, 'end_date': today})
         if d.get('data'):
@@ -576,29 +578,128 @@ def fetch_oura():
         d = oura_get('sleep', {'start_date': yesterday, 'end_date': today})
         sessions = [s for s in (d.get('data') or []) if s.get('day') == yesterday]
         if sessions:
-            result['total_sleep_sec'] = sum(s.get('total_sleep_duration', 0) for s in sessions)
-            result['deep_sleep_sec']  = sum(s.get('deep_sleep_duration', 0) for s in sessions)
-            result['rem_sleep_sec']   = sum(s.get('rem_sleep_duration', 0) for s in sessions)
+            result['total_sleep_sec']   = sum(s.get('total_sleep_duration', 0) for s in sessions)
+            result['deep_sleep_sec']    = sum(s.get('deep_sleep_duration', 0) for s in sessions)
+            result['rem_sleep_sec']     = sum(s.get('rem_sleep_duration', 0) for s in sessions)
+            result['light_sleep_sec']   = sum(s.get('light_sleep_duration', 0) for s in sessions)
+            result['awake_time_sec']    = sum(s.get('awake_time', 0) for s in sessions)
+            result['sleep_efficiency']  = round(sum(s.get('efficiency', 0) for s in sessions) / len(sessions)) if sessions else None
+            result['sleep_latency_sec'] = sum(s.get('onset_latency', 0) for s in sessions)
+            result['restless_periods']  = sum(s.get('restless_periods', 0) for s in sessions)
             hrv_vals = [s['average_hrv'] for s in sessions if s.get('average_hrv')]
             result['avg_hrv'] = round(sum(hrv_vals) / len(hrv_vals)) if hrv_vals else None
             result['resting_hr'] = min((s['lowest_heart_rate'] for s in sessions if s.get('lowest_heart_rate')), default=None)
+            result['avg_hr_sleep'] = round(sum(s['average_heart_rate'] for s in sessions if s.get('average_heart_rate')) / len(sessions)) if sessions else None
+            result['breath_avg'] = round(sum(s['average_breath'] for s in sessions if s.get('average_breath')) / len(sessions), 1) if sessions else None
+            # Bedtime / wake time from last session
+            last = sessions[-1]
+            result['bedtime_start'] = last.get('bedtime_start', '')[:16]  # "2026-06-11T22:30"
+            result['bedtime_end']   = last.get('bedtime_end', '')[:16]
+            result['sleep_type']    = last.get('type', '')  # long_sleep / short_sleep / rest
     except Exception as e:
         print(f'Oura sleep error: {e}', flush=True)
 
+    # ── Readiness ─────────────────────────────────────────────────
     try:
         d = oura_get('daily_readiness', {'start_date': yesterday, 'end_date': today})
         if d.get('data'):
             entry = d['data'][-1]
-            result['readiness_score'] = entry.get('score')
+            result['readiness_score']        = entry.get('score')
             result['readiness_contributors'] = entry.get('contributors', {})
+            result['temperature_deviation']  = entry.get('temperature_deviation')
+            result['temperature_trend_deviation'] = entry.get('temperature_trend_deviation')
     except Exception as e:
         print(f'Oura readiness error: {e}', flush=True)
 
+    # ── Activity (today) ──────────────────────────────────────────
+    try:
+        d = oura_get('daily_activity', {'start_date': yesterday, 'end_date': today})
+        entries = d.get('data') or []
+        # prefer today, fall back to yesterday
+        activity = next((e for e in reversed(entries) if e.get('day') == today), None) \
+                or next((e for e in reversed(entries) if e.get('day') == yesterday), None)
+        if activity:
+            result['activity_score']           = activity.get('score')
+            result['steps']                    = activity.get('steps')
+            result['active_calories']          = activity.get('active_calories')
+            result['total_calories']           = activity.get('total_calories')
+            result['equivalent_walking_km']    = round((activity.get('equivalent_walking_distance') or 0) / 1000, 2)
+            result['high_activity_min']        = round((activity.get('high_activity_time') or 0) / 60)
+            result['medium_activity_min']      = round((activity.get('medium_activity_time') or 0) / 60)
+            result['low_activity_min']         = round((activity.get('low_activity_time') or 0) / 60)
+            result['sedentary_min']            = round((activity.get('sedentary_time') or 0) / 60)
+            result['inactivity_alerts']        = activity.get('inactivity_alerts')
+            result['activity_contributors']    = activity.get('contributors', {})
+            result['activity_date']            = activity.get('day')
+    except Exception as e:
+        print(f'Oura daily_activity error: {e}', flush=True)
+
+    # ── Stress ────────────────────────────────────────────────────
+    try:
+        d = oura_get('daily_stress', {'start_date': yesterday, 'end_date': today})
+        entries = d.get('data') or []
+        stress = next((e for e in reversed(entries) if e.get('day') == today), None) \
+               or next((e for e in reversed(entries) if e.get('day') == yesterday), None)
+        if stress:
+            result['stress_summary']   = stress.get('day_summary')   # normal/high/low/restored
+            result['stress_high_min']  = round((stress.get('stress_high') or 0) / 60)
+            result['recovery_high_min']= round((stress.get('recovery_high') or 0) / 60)
+    except Exception as e:
+        print(f'Oura stress error: {e}', flush=True)
+
+    # ── SpO2 (blood oxygen) ────────────────────────────────────────
+    try:
+        d = oura_get('daily_spo2', {'start_date': yesterday, 'end_date': today})
+        if d.get('data'):
+            entry = d['data'][-1]
+            result['spo2_avg']                  = round(entry.get('spo2_percentage', {}).get('average', 0), 1) or None
+            result['breathing_disturbance_idx'] = entry.get('breathing_disturbance_index')
+    except Exception as e:
+        print(f'Oura spo2 error: {e}', flush=True)
+
+    # ── Recent workouts (last 7 days) ─────────────────────────────
+    try:
+        d = oura_get('workout', {'start_date': week_ago, 'end_date': today})
+        workouts = d.get('data') or []
+        result['workouts'] = [
+            {
+                'day':       w.get('day'),
+                'activity':  w.get('activity'),
+                'intensity': w.get('intensity'),
+                'duration_min': round((
+                    (datetime.fromisoformat(w['end_datetime'].replace('Z','+00:00')) -
+                     datetime.fromisoformat(w['start_datetime'].replace('Z','+00:00'))).total_seconds()
+                ) / 60) if w.get('start_datetime') and w.get('end_datetime') else None,
+                'calories':  round(w.get('calories') or 0),
+                'distance_km': round((w.get('distance') or 0) / 1000, 2),
+            }
+            for w in sorted(workouts, key=lambda x: x.get('day',''), reverse=True)[:7]
+        ]
+    except Exception as e:
+        print(f'Oura workout error: {e}', flush=True)
+
+    # ── 7-day trend scores ────────────────────────────────────────
+    try:
+        d_sleep = oura_get('daily_sleep',     {'start_date': week_ago, 'end_date': today})
+        d_ready = oura_get('daily_readiness', {'start_date': week_ago, 'end_date': today})
+        d_act   = oura_get('daily_activity',  {'start_date': week_ago, 'end_date': today})
+        result['trend_7day'] = []
+        sleep_by_day   = {e['day']: e.get('score') for e in (d_sleep.get('data') or [])}
+        ready_by_day   = {e['day']: e.get('score') for e in (d_ready.get('data') or [])}
+        act_by_day     = {e['day']: e.get('score') for e in (d_act.get('data') or [])}
+        # all days across all three
+        all_days = sorted(set(list(sleep_by_day) + list(ready_by_day) + list(act_by_day)))
+        result['trend_7day'] = [
+            {'day': day, 'sleep': sleep_by_day.get(day), 'readiness': ready_by_day.get(day), 'activity': act_by_day.get(day)}
+            for day in all_days[-7:]
+        ]
+    except Exception as e:
+        print(f'Oura trend error: {e}', flush=True)
+
     _oura_cache['data'] = result
     _oura_cache['ts']   = now
-    print(f"Oura synced — sleep {result.get('sleep_score')}, readiness {result.get('readiness_score')}", flush=True)
+    print(f"Oura synced — sleep {result.get('sleep_score')}, readiness {result.get('readiness_score')}, activity {result.get('activity_score')}, steps {result.get('steps')}", flush=True)
 
-    # Push to Firestore so iPhone/iPad see the same data without needing the bridge
     threading.Thread(target=push_oura_to_firestore, args=(result,), daemon=True).start()
     return result
 
