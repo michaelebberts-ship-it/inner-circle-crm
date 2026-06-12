@@ -65,7 +65,10 @@ let S = {
   showGroupText:false,groupTextTag:"friends",groupTextDraft:null,groupTextLoading:false,
   showImport:false,importParsed:[],importTags:[],importing:false,
   unsub:null,
-  osEvents:null,osReminders:null,osLoading:false,osAvailable:null
+  osEvents:null,osReminders:null,osLoading:false,osAvailable:null,
+  // Quick Text AI
+  showQt:false,qtText:"",qtContact:null,qtDraft:null,qtLoading:false,
+  qtListening:false,qtError:null,qtLogged:false
 };
 
 // Apple Calendar + Reminders via local bridge (serve_os.py)
@@ -294,6 +297,92 @@ async function genGifts(){
     await fbUp(c.id,{gifts:[...existing,...newGifts]});
   }
   S.giftGenerating=false;S.giftAdding=false;render();
+}
+
+// ── Quick Text AI ─────────────────────────────────────────
+var _qtRecog = null;
+
+async function qtParse(input){
+  S.qtLoading=true;S.qtContact=null;S.qtDraft=null;S.qtError=null;S.qtLogged=false;render();
+  var names=S.contacts.map(function(c){return c.fname+" "+c.lname;}).join(", ");
+  var parseRaw=await callAI('I have these contacts: '+names+'\n\nParse this command: "'+input+'"\n\nReturn ONLY valid JSON (no markdown): {"fname":"first name","lname":"last name","context":"what the message is about in a few words"}\n\nMatch the closest contact name. context = the reason/subject for the text.');
+  if(!parseRaw){S.qtLoading=false;S.qtError="Couldn't parse that. Try again.";render();return;}
+  var parsed;
+  try{parsed=JSON.parse(parseRaw.replace(/```json|```/g,"").trim());}catch(e){S.qtLoading=false;S.qtError="Couldn't parse that. Try again.";render();return;}
+  var contact=S.contacts.find(function(c){
+    return c.fname.toLowerCase()===((parsed.fname||"").toLowerCase())&&c.lname.toLowerCase()===((parsed.lname||"").toLowerCase());
+  })||S.contacts.find(function(c){
+    return c.fname.toLowerCase()===((parsed.fname||"").toLowerCase());
+  })||S.contacts.find(function(c){
+    var full=(c.fname+" "+c.lname).toLowerCase();
+    return full.includes((parsed.fname||"").toLowerCase())||full.includes((parsed.lname||"").toLowerCase());
+  });
+  if(!contact){S.qtLoading=false;S.qtError="Couldn't find a contact matching \""+escH((parsed.fname||"")+" "+(parsed.lname||""))+"\"";render();return;}
+  S.qtContact=contact;
+  var ctx=parsed.context||input;
+  var draft=await callAI('Write a short casual iMessage from Michael to '+contact.fname+' about: '+ctx+'. Background on '+contact.fname+': '+(contact.note||"friend")+'. Easygoing dad energy. 1-2 sentences. Just the message text, nothing else.');
+  if(!draft){S.qtLoading=false;S.qtError="Couldn't draft the message. Try again.";render();return;}
+  S.qtDraft=draft;S.qtLoading=false;render();
+}
+
+async function qtSendLog(){
+  if(!S.qtContact||!S.qtDraft)return;
+  var c=S.qtContact;
+  var noteText="Texted: "+S.qtDraft;
+  var note={id:uid(),date:tod(),text:noteText};
+  var existing=S.contacts.find(function(x){return x.id===c.id;});
+  var notes=[note,...((existing&&existing.contactNotes)||[])];
+  await fbUp(c.id,{contactNotes:notes,lastContact:tod()});
+  S.qtLogged=true;render();
+}
+
+function quickTextSheetHTML(){
+  if(!S.showQt)return "";
+  var c=S.qtContact,draft=S.qtDraft;
+  var sms=c&&c.phone&&draft?"sms:+"+telDigits(c.phone)+"?body="+encodeURIComponent(draft):"";
+  return '<div onclick="if(event.target===this){S.showQt=false;render();}" style="position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:700;display:flex;align-items:flex-end;justify-content:center">'
+    +'<div style="background:#fff;border-radius:22px 22px 0 0;padding:20px;width:100%;max-width:540px;font-family:var(--font-body);padding-bottom:calc(20px + env(safe-area-inset-bottom))">'
+    +'<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px">'
+    +'<div style="font-family:var(--font-display);font-size:17px;font-weight:900;color:var(--text)">✦ Quick Text</div>'
+    +'<button onclick="S.showQt=false;render()" style="background:#F5F5F5;border:none;border-radius:50%;width:28px;height:28px;cursor:pointer;font-size:13px;color:#666">✕</button>'
+    +'</div>'
+    // input row
+    +'<div style="display:flex;gap:8px;margin-bottom:14px">'
+    +'<div style="flex:1;display:flex;align-items:center;gap:8px;background:var(--panel2);border:1.5px solid var(--border);border-radius:12px;padding:10px 12px">'
+    +'<input id="qt-input" placeholder="text Lauren, on my way home…" value="'+escH(S.qtText)+'" oninput="S.qtText=this.value" onkeydown="if(event.key===\'Enter\'){event.preventDefault();window._qtSend();}" style="flex:1;border:none;background:transparent;font-size:14px;color:var(--text);outline:none;font-family:var(--font-body)">'
+    +'<button id="qt-mic" onclick="window._qtMic()" title="Voice input" style="border:none;background:none;cursor:pointer;font-size:18px;padding:0;color:'+(S.qtListening?"var(--red)":"var(--text-mid)")+'">'+(S.qtListening?"🔴":"🎙️")+'</button>'
+    +'</div>'
+    +'<button onclick="window._qtSend()" style="padding:10px 16px;border-radius:12px;border:none;background:var(--accent);color:var(--bg);font-weight:800;font-size:14px;cursor:pointer;font-family:var(--font-display)">'+(S.qtLoading?'<div style="width:14px;height:14px;border:2px solid rgba(0,0,0,0.2);border-top-color:var(--bg);border-radius:50%;animation:spin 0.7s linear infinite"></div>':"Go")+'</button>'
+    +'</div>'
+    // error
+    +(S.qtError?'<div style="background:rgba(239,68,68,0.1);border:1px solid rgba(239,68,68,0.3);border-radius:10px;padding:10px 12px;font-size:13px;color:var(--red);margin-bottom:12px">⚠️ '+escH(S.qtError)+'</div>':"")
+    // result
+    +(c&&draft?
+      '<div style="background:var(--panel2);border-radius:14px;padding:14px;border:1px solid var(--border)">'
+      +'<div style="display:flex;align-items:center;gap:10px;margin-bottom:12px">'
+      +'<div style="width:38px;height:38px;border-radius:50%;background:'+c.color+'22;color:'+c.color+';display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:900;flex-shrink:0">'+ini(c)+'</div>'
+      +'<div><div style="font-weight:800;font-size:14px;font-family:var(--font-display)">'+c.fname+' '+c.lname+'</div>'
+      +(c.phone?'<div style="font-size:11px;color:var(--text-mid)">'+fmtPhone(c.phone)+'</div>':"")
+      +'</div></div>'
+      +'<div style="background:#fff;border:1.5px solid rgba(16,185,129,0.3);border-radius:10px;padding:10px 12px;font-size:13px;color:#1a1a1a;line-height:1.7;font-style:italic;margin-bottom:12px">'+escH(draft)+'</div>'
+      +'<div style="display:flex;gap:8px;flex-wrap:wrap">'
+      +(sms?'<a href="'+sms+'" onclick="setTimeout(window._qtLog,800)" style="flex:1;display:flex;align-items:center;justify-content:center;gap:6px;padding:10px 14px;border-radius:12px;background:var(--green);color:#fff;font-weight:800;font-size:13px;text-decoration:none;font-family:var(--font-display)">📱 Open in Messages</a>':"")
+      +(S.qtLogged
+        ?'<div style="flex:1;padding:10px 14px;border-radius:12px;background:rgba(16,185,129,0.1);border:1.5px solid rgba(16,185,129,0.3);color:var(--green);font-weight:800;font-size:13px;text-align:center;font-family:var(--font-display)">✅ Logged</div>'
+        :'<button onclick="window._qtLog()" style="flex:1;padding:10px 14px;border-radius:12px;border:1.5px solid var(--border);background:#fff;font-weight:700;font-size:13px;cursor:pointer;color:var(--text-mid);font-family:var(--font-display)">📝 Log note</button>')
+      +'<button onclick="S.qtDraft=null;S.qtContact=null;S.qtLogged=false;render()" style="padding:10px;border-radius:12px;border:1.5px solid var(--border);background:#fff;font-size:14px;cursor:pointer;color:var(--text-mid)">↺</button>'
+      +'</div></div>'
+    :"")
+    +(S.qtLoading&&!c?'<div style="display:flex;align-items:center;gap:10px;padding:14px;background:var(--panel2);border-radius:12px;font-size:13px;color:var(--text-mid);font-style:italic"><div style="width:14px;height:14px;border:2px solid var(--border);border-top-color:var(--accent);border-radius:50%;animation:spin 0.7s linear infinite;flex-shrink:0"></div>Finding contact & drafting…</div>':"")
+    +'</div></div>';
+}
+
+function qtFAB(){
+  return '<button onclick="window._qtOpen()" style="position:fixed;bottom:calc(72px + env(safe-area-inset-bottom) + 12px);right:16px;z-index:600;width:52px;height:52px;border-radius:50%;border:none;background:var(--accent);color:var(--bg);font-size:20px;cursor:pointer;box-shadow:0 4px 20px rgba(0,212,255,0.4);display:flex;align-items:center;justify-content:center;font-weight:900;font-family:var(--font-display)" title="Quick Text">✦</button>';
+}
+
+function qtFABDesktop(){
+  return '<button onclick="window._qtOpen()" style="position:fixed;bottom:28px;right:28px;z-index:600;display:flex;align-items:center;gap:8px;padding:12px 20px;border-radius:30px;border:none;background:var(--accent);color:var(--bg);font-size:14px;font-weight:800;cursor:pointer;box-shadow:0 4px 20px rgba(0,212,255,0.4);font-family:var(--font-display)" title="Quick Text">✦ Quick Text</button>';
 }
 
 // ── views ──────────────────────────────────────────────────
@@ -666,6 +755,8 @@ function render(){
       +addModalHTML()
       +editModalHTML()
       +apiKeyModalHTML()+groupTextModalHTML()+importModalHTML()
+      +quickTextSheetHTML()
+      +qtFAB()
       +'</div>';
   } else {
     root.innerHTML='<div style="display:flex;height:100vh;overflow:hidden">'
@@ -681,6 +772,8 @@ function render(){
       +addModalHTML()
       +editModalHTML()
       +apiKeyModalHTML()+groupTextModalHTML()+importModalHTML()
+      +quickTextSheetHTML()
+      +qtFABDesktop()
       +'</div>';
   }
 }
@@ -769,6 +862,21 @@ window._sc=function(){
   fbSet(c);
 };
 window.addEventListener("resize",render);
+
+// ── Quick Text globals ────────────────────────────────────
+window._qtOpen=function(){S.showQt=true;S.qtText="";S.qtContact=null;S.qtDraft=null;S.qtError=null;S.qtLogged=false;render();setTimeout(function(){var el=document.getElementById("qt-input");if(el)el.focus();},80);};
+window._qtSend=function(){var t=S.qtText.trim();if(!t||S.qtLoading)return;qtParse(t);};
+window._qtLog=function(){qtSendLog();};
+window._qtMic=function(){
+  if(S.qtListening){if(_qtRecog){_qtRecog.stop();}_qtRecog=null;S.qtListening=false;render();return;}
+  var SR=window.SpeechRecognition||window.webkitSpeechRecognition;
+  if(!SR){alert("Voice input not supported in this browser.");return;}
+  _qtRecog=new SR();_qtRecog.lang="en-US";_qtRecog.interimResults=false;_qtRecog.maxAlternatives=1;
+  _qtRecog.onresult=function(e){var t=e.results[0][0].transcript;S.qtText=t;S.qtListening=false;_qtRecog=null;render();window._qtSend();};
+  _qtRecog.onerror=function(){S.qtListening=false;_qtRecog=null;render();};
+  _qtRecog.onend=function(){S.qtListening=false;_qtRecog=null;render();};
+  S.qtListening=true;render();_qtRecog.start();
+};
 </script>
 </body>
 </html>
